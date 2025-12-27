@@ -146,14 +146,13 @@ These may be added **after** the algorithm stabilizes.
 MIT License (or specify your preferred license).
 
 
-## GitHub 登録までの最短手順
+## Testing
 
 ```bash
-git init
-git add README.md .gitignore pyproject.toml src
-git commit -m "Initial commit: Python Travel ground segmentation reference implementation"
+# venv
+uv sync
+source .venv/bin/activate
 
-git branch -M main
-git remote add origin git@github.com:<your_name>/travel_py.git
-git push -u origin main
+# test
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest
 ```
