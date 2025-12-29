@@ -14,7 +14,7 @@ from travel_py.seed import (
     LowMeanHeight,
 )
 from travel_py.accept import (
-    AcceptConfig,
+    TraversalAcceptConfig,
     accept_height_and_slope,
 )
 from travel_py.traversal import run_traversal
@@ -24,6 +24,12 @@ from travel_py.debug_viz import (
     plot_cell_state,
     plot_reject_reason,
     plot_iteration,
+)
+from travel_py.config import (
+    GridConfig,
+    SeedConfig,
+    AcceptConfig,
+    DebugConfig,
 )
 
 
@@ -72,10 +78,12 @@ def main() -> None:
     # -------------------------
     # Grid
     # -------------------------
+    grid_cfg = GridConfig() # TODO: parse from args
+
     grid_spec = GridSpec(
-        resolution=0.5,
-        origin_xy=(-50.0, -50.0),
-        size_xy=(200, 200),
+        resolution=grid_cfg.resolution,
+        origin_xy=grid_cfg.origin_xy,
+        size_xy=grid_cfg.size_xy,
     )
 
     grid = Grid.from_points(points, grid_spec)
@@ -88,15 +96,22 @@ def main() -> None:
     # -------------------------
     # Seed selection
     # -------------------------
-    seed_selector = SeedSelector(
-        criteria=[
-            MinPointCount(min_points=5),
-            SmallHeightRange(),
-            LowMeanHeight(),
-        ],
-        top_k=3,
-    )
+    seed_cfg = SeedConfig() # TODO: parse from args
 
+    criteria = [
+        MinPointCount(seed_cfg.min_points),
+    ]
+
+    if seed_cfg.use_height_range:
+        criteria.append(SmallHeightRange())
+
+    if seed_cfg.use_mean_height:
+        criteria.append(LowMeanHeight())
+
+    seed_selector = SeedSelector(
+        criteria=criteria,
+        top_k=seed_cfg.top_k,
+    )
     seed_cells = seed_selector.select(grid.iter_cells())
 
     if not seed_cells:
@@ -105,15 +120,17 @@ def main() -> None:
     # -------------------------
     # Traversal (accept config)
     # -------------------------
-    accept_config = AcceptConfig(
-        max_height_diff=0.3,
-        max_slope=0.4,
-        cell_size=grid_spec.resolution,
-    )
+    accept_cfg = AcceptConfig()
 
     def accept_fn(current, neighbor):
         return accept_height_and_slope(
-            current, neighbor, config=accept_config
+            current,
+            neighbor,
+            config=TraversalAcceptConfig(
+                max_height_diff=accept_cfg.max_height_diff,
+                max_slope=accept_cfg.max_slope,
+                cell_size=grid_cfg.resolution,
+            ),
         )
 
     traversal_state = run_traversal(

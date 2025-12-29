@@ -8,20 +8,16 @@ from .types import Cell, RejectReason
 
 
 @dataclass
-class AcceptConfig:
-    """
-    Configuration for traversal acceptance.
-    """
-    max_height_diff: float  # [m]
-    max_slope: float | None = None  # optional
-    cell_size: float | None = None  # needed if slope is enabled
-
+class TraversalAcceptConfig:
+    max_height_diff: float
+    max_slope: float | None = None
+    cell_size: float | None = None
 
 def accept_height_only(
     current: Cell,
     neighbor: Cell,
     *,
-    config: AcceptConfig,
+    config: TraversalAcceptConfig,
 ) -> Tuple[bool, RejectReason]:
     """
     Accept based only on height difference (min_z).
@@ -45,7 +41,7 @@ def accept_height_and_slope(
     current: Cell,
     neighbor: Cell,
     *,
-    config: AcceptConfig,
+    config: TraversalAcceptConfig,
 ) -> Tuple[bool, RejectReason]:
     """
     Accept based on height difference and slope.
