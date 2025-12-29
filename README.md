@@ -152,7 +152,14 @@ MIT License (or specify your preferred license).
 # venv
 uv sync
 source .venv/bin/activate
+uv pip install -e .
 
 # test
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest
+```
+
+```bash
+# run test with random point
+python tools/make_sample.py
+uv run python -m travel_py.main --points sample.npy --viz
 ```
