@@ -30,6 +30,7 @@ from travel_py.config import (
     SeedConfig,
     AcceptConfig,
     DebugConfig,
+    load_config,
 )
 
 
@@ -67,6 +68,12 @@ def main() -> None:
         action="store_true",
         help="Enable debug visualization",
     )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/default.yaml"),
+        help="Path to config file",
+    )
     args = parser.parse_args()
 
     # -------------------------
@@ -75,10 +82,13 @@ def main() -> None:
     points = load_points(args.points)
     num_points = points.shape[0]
 
+    # Load config
+    global_cfg = load_config(args.config)
+
     # -------------------------
     # Grid
     # -------------------------
-    grid_cfg = GridConfig() # TODO: parse from args
+    grid_cfg = global_cfg.grid
 
     grid_spec = GridSpec(
         resolution=grid_cfg.resolution,
@@ -96,7 +106,7 @@ def main() -> None:
     # -------------------------
     # Seed selection
     # -------------------------
-    seed_cfg = SeedConfig() # TODO: parse from args
+    seed_cfg = global_cfg.seed
 
     criteria = [
         MinPointCount(seed_cfg.min_points),
@@ -120,7 +130,7 @@ def main() -> None:
     # -------------------------
     # Traversal (accept config)
     # -------------------------
-    accept_cfg = AcceptConfig()
+    accept_cfg = global_cfg.accept
 
     def accept_fn(current, neighbor):
         return accept_height_and_slope(

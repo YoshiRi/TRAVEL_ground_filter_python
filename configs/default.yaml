@@ -1,0 +1,17 @@
+grid:
+  resolution: 2
+  origin_xy: [-50.0, -50.0]
+  size_xy: [200, 200]
+
+seed:
+  min_points: 3
+  use_height_range: true
+  use_mean_height: true
+  top_k: 3
+
+accept:
+  max_height_diff: 0.3
+  max_slope: 0.4
+
+debug:
+  enable_viz: true

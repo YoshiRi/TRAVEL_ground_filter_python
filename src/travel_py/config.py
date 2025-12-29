@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Tuple, Optional
-
+import yaml
+from pathlib import Path
+from typing import Any
 
 # =========================
 # Grid configuration
@@ -13,7 +15,7 @@ class GridConfig:
     """
     Grid definition parameters.
     """
-    resolution: float = 0.5
+    resolution: float = 5
     origin_xy: Tuple[float, float] = (-50.0, -50.0)
     size_xy: Tuple[int, int] = (200, 200)
 
@@ -56,3 +58,42 @@ class DebugConfig:
     Debug / visualization flags.
     """
     enable_viz: bool = False
+
+# =========================
+# Global configuration
+# =========================
+@dataclass
+class GlobalConfig:
+    grid: GridConfig = GridConfig()
+    seed: SeedConfig = SeedConfig()
+    accept: AcceptConfig = AcceptConfig()
+    debug: DebugConfig = DebugConfig()
+
+
+# =========================
+# Loader 
+# =========================
+
+def load_config(path: Path | None = None) -> GlobalConfig:
+    cfg = GlobalConfig()
+
+    if path is None:
+        return cfg
+
+    with open(path, "r") as f:
+        data: dict[str, Any] = yaml.safe_load(f) or {}
+
+    if "grid" in data:
+        cfg.grid = replace(cfg.grid, **data["grid"])
+
+    if "seed" in data:
+        cfg.seed = replace(cfg.seed, **data["seed"])
+
+    if "accept" in data:
+        cfg.accept = replace(cfg.accept, **data["accept"])
+
+    if "debug" in data:
+        cfg.debug = replace(cfg.debug, **data["debug"])
+
+    return cfg
+
