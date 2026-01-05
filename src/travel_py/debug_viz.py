@@ -186,3 +186,46 @@ def plot_iteration(
 
     if show:
         plt.show()
+
+def plot_filtered_points_xy(
+    points_xyz,
+    labels,
+    *,
+    title="Filtered points (XY)",
+    show=True,
+):
+    """
+    Plot ground / non-ground points in XY plane.
+    """
+    ground = labels == 1
+    nonground = labels == 0
+
+    plt.figure(figsize=(6, 6))
+
+    plt.scatter(
+        points_xyz[nonground, 0],
+        points_xyz[nonground, 1],
+        s=1,
+        c="red",
+        alpha=0.3,
+        label="non-ground",
+    )
+
+    plt.scatter(
+        points_xyz[ground, 0],
+        points_xyz[ground, 1],
+        s=1,
+        c="green",
+        alpha=0.5,
+        label="ground",
+    )
+
+    plt.gca().set_aspect("equal", adjustable="box")
+    plt.xlabel("x [m]")
+    plt.ylabel("y [m]")
+    plt.title(title)
+    plt.legend()
+    plt.grid(True)
+
+    if show:
+        plt.show()

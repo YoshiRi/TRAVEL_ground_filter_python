@@ -24,6 +24,7 @@ from travel_py.debug_viz import (
     plot_cell_state,
     plot_reject_reason,
     plot_iteration,
+    plot_filtered_points_xy,
 )
 from travel_py.config import (
     GridConfig,
@@ -171,6 +172,7 @@ def main() -> None:
         plot_cell_state(grid.iter_cells())
         plot_reject_reason(grid.iter_cells())
         plot_iteration(grid.iter_cells())
+        plot_filtered_points_xy(points, labels)
 
 
 if __name__ == "__main__":
