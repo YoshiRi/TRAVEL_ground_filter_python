@@ -102,11 +102,10 @@ uv pip install -e .
 ## Running
 
 ```bash
-python -m travel_py.main
+python -m travel_py.main --points /path/to/points.npy
 ```
 
-Configuration parameters are defined in `config.py`
-(or externalized later if needed).
+Configuration parameters are defined in `config.py` and `configs/default.yaml`.
 
 ---
 
