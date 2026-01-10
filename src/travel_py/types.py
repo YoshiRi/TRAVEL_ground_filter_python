@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
+import numpy as np
+
 from typing import Dict, List, Optional, Tuple
 
 
@@ -65,6 +67,21 @@ class Cell:
 
     # Indices of original points belonging to this cell
     point_indices: List[int] = field(default_factory=list)
+
+    # TGS: SubCells (0-3)
+    subcells: Dict[int, SubCell] = field(default_factory=dict)
+
+@dataclass
+class SubCell:
+    """
+    Triangular sub-division of a Grid Cell (TGS).
+    """
+    points: np.ndarray            # shape: (N, 3)
+    normal: Optional[np.ndarray] = None     # shape: (3,)
+    mean: Optional[np.ndarray] = None       # shape: (3,)
+    d: Optional[float] = None
+    weight: float = 0.0
+    label: CellState = CellState.UNKNOWN
 
 
 @dataclass

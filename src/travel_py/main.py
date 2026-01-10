@@ -105,6 +105,33 @@ def main() -> None:
     compute_all_cell_features(grid.iter_cells(), points)
 
     # -------------------------
+    # TGS Step 1: Node-wise Ground Estimation
+    # -------------------------
+    from travel_py.plane import LocalPlaneEstimator
+    from travel_py.types import CellState
+
+    plane_estimator = LocalPlaneEstimator()
+
+    stats = {
+        CellState.GROUND: 0,
+        CellState.NON_GROUND: 0,
+        CellState.UNKNOWN: 0,
+    }
+
+    print("Running Node-wise Ground Estimation...")
+
+    for cell in grid.iter_cells():
+        for subcell in cell.subcells.values():
+            plane_estimator.estimate_and_update(subcell)
+            stats[subcell.label] += 1
+
+    print(f"  Total SubCells : {sum(stats.values())}")
+    print(f"  Ground         : {stats[CellState.GROUND]}")
+    print(f"  Non-Ground     : {stats[CellState.NON_GROUND]}")
+    print(f"  Unknown        : {stats[CellState.UNKNOWN]}")
+    
+
+    # -------------------------
     # Seed selection
     # -------------------------
     seed_cfg = global_cfg.seed
