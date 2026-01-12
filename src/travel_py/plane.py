@@ -156,6 +156,7 @@ def is_traversable_lcc(
                       # TGS paper uses angle.
                       # Let's use dot product threshold for simplicity and speed.
     th_dist: float,
+    verbose: bool = False,
 ) -> bool:
     """
     Local Convexity / Concavity (LCC) check.
@@ -167,6 +168,8 @@ def is_traversable_lcc(
     # If normals are opposite, dot is -1. We care about orientation.
     # Ground normals should be roughly aligned.
     if sim < th_normal:
+        if verbose:
+            print(f"  [LCC Reject] Normal similarity {sim:.3f} < {th_normal}")
         return False
 
     # 2. Plane distance
@@ -179,6 +182,8 @@ def is_traversable_lcc(
     dist_dst = np.dot(dst.normal, -delta)
     
     if abs(dist_src) > th_dist or abs(dist_dst) > th_dist:
+        if verbose:
+            print(f"  [LCC Reject] Dist src={abs(dist_src):.3f}, dst={abs(dist_dst):.3f} > {th_dist}")
         return False
         
     return True

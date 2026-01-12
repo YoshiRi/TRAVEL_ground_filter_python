@@ -124,9 +124,27 @@ def run_subcell_traversal(
     """
     Run BFS on SubCell graph.
     
-    Returns:
-        visited: Set of reachable SubCellIndices.
-        rejected_count: Number of rejected edges (for stats).
+    Parameters
+    ----------
+    graph:
+        TraversabilityGraph instance providing neighbor access.
+    start_nodes:
+        Initial SubCellIndices to start BFS from.
+    accept_fn:
+        Function (src_idx, dst_idx) -> bool.
+        MUST decide whether traversal is allowed.
+        Contract:
+          - Must handle existence checks (return False if cell/subcell missing).
+          - Must check plane validity (normals, etc.).
+          - Must perform geometric checks (LCC, etc.).
+          - Traversal logic relies SOLELY on this function for acceptance.
+    
+    Returns
+    -------
+    visited:
+        Set of reachable SubCellIndices.
+    rejected_count:
+        Number of rejected edges (where accept_fn returned False).
     """
     queue: Deque[SubCellIndex] = deque()
     visited: Set[SubCellIndex] = set()

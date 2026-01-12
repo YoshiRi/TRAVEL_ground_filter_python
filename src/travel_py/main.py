@@ -148,26 +148,33 @@ def main() -> None:
     start_nodes = graph.find_dominant_subcells()
     print(f"Traversal Seeds: {len(start_nodes)}")
     
+    # Debug flag for traversal acceptance
+    debug_traversal = False # Set to True to see rejection reasons
+    
     def accept_lcc(src_idx, dst_idx) -> bool:
         # 1. Retrieve SubCells
         src_cell = grid.cells.get((src_idx.i, src_idx.j))
         dst_cell = grid.cells.get((dst_idx.i, dst_idx.j))
         
         if not src_cell or not dst_cell:
+            if debug_traversal: print(f"Reject: Missing cell {src_idx} or {dst_idx}")
             return False
             
         src_sub = src_cell.subcells.get(src_idx.tri)
         dst_sub = dst_cell.subcells.get(dst_idx.tri)
         
         if not src_sub or not dst_sub:
+            if debug_traversal: print(f"Reject: Missing subcell {src_idx} or {dst_idx}")
             return False
             
         # 2. Check Candidate Status (Step 1 result)
         if dst_sub.label != CellState.GROUND:
+            if debug_traversal: print(f"Reject: Dst {dst_idx} is {dst_sub.label}")
             return False
             
         # 3. Check Data Availability
         if src_sub.normal is None or dst_sub.normal is None:
+            if debug_traversal: print(f"Reject: Missing normal {src_idx} or {dst_idx}")
             return False
             
         # 4. LCC Check
@@ -190,7 +197,8 @@ def main() -> None:
             src_plane, 
             dst_plane, 
             th_normal=0.9, 
-            th_dist=0.5
+            th_dist=0.5,
+            verbose=debug_traversal
         )
 
     visited, rejected_count = run_subcell_traversal(
