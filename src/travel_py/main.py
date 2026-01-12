@@ -142,10 +142,11 @@ def main() -> None:
     from travel_py.graph import TraversabilityGraph
     from travel_py.traversal import run_subcell_traversal
     from travel_py.plane import is_traversable_lcc, PlaneModel
+    from travel_py.seed import find_dominant_subcells
     
     print("Running Traversal (BFS + LCC)...")
     graph = TraversabilityGraph(grid)
-    start_nodes = graph.find_dominant_subcells()
+    start_nodes = find_dominant_subcells(grid)
     print(f"Traversal Seeds: {len(start_nodes)}")
     
     # Debug flag for traversal acceptance

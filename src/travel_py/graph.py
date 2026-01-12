@@ -14,6 +14,10 @@ class TraversabilityGraph:
     def get_neighbor_subcells(self, idx: SubCellIndex) -> List[SubCellIndex]:
         """
         Get neighbors: 3 internal + neighbors in adjacent cells.
+        
+        NOTE: This is a LOOSE adjacency implementation (connects to all subcells of 8 neighbors).
+        It is intended for early traversal validation and graph wiring tests.
+        It does NOT yet implement the strict TGS edge-sharing logic.
         """
         neighbors = []
         
@@ -93,58 +97,5 @@ class TraversabilityGraph:
                     
         return neighbors
 
-    def find_dominant_subcells(self) -> List[SubCellIndex]:
-        """
-        Find seed subcells: GROUND label, high weight, near center.
-        """
-        # Grid center
-        ox, oy = self.grid.spec.origin_xy
-        w, h = 0.0, 0.0
-        if self.grid.spec.size_xy:
-            nx, ny = self.grid.spec.size_xy
-            w = nx * self.grid.spec.resolution
-            h = ny * self.grid.spec.resolution
-        
-        center_x = ox + w * 0.5
-        center_y = oy + h * 0.5
-        
-        # Search for best seed
-        best_idx = None
-        best_weight = -1.0
-        
-        # Scan all cells? Or just a window?
-        # Scanning all is fine for now.
-        candidate_count = 0
-        for cell in self.grid.iter_cells():
-            for t, sub in cell.subcells.items():
-                if sub.label != CellState.GROUND:
-                    continue
-                    
-                candidate_count += 1
-                # Check distance to center (optional, but requested "ego near")
-                # We don't have subcell center easily available without recomputing.
-                # Use grid cell center.
-                cx, cy = self.grid.grid_index_to_world(cell.index[0], cell.index[1])
-                dist = (cx - center_x)**2 + (cy - center_y)**2
-                
-                # Simple heuristic: weight / (1 + dist) ? 
-                # Or just "in center region" AND max weight.
-                # Let's pick max weight within some radius?
-                # Or just max weight globally?
-                # User: "grid 中央付近で weight 最大の GROUND SubCell を 1 つ返す"
-                
-                # Let's define "near" as within 10m?
-                if dist < 10000.0: # 100m^2 -> 10m radius? No wait 100^2 = 10000. 
-                                   # 100.0 was 10m radius (10^2).
-                                   # Let's make it huge to catch anything in sample.
-                    if sub.weight > best_weight:
-                        best_weight = sub.weight
-                        best_idx = SubCellIndex(cell.index[0], cell.index[1], t)
-        
-        print(f"DEBUG: Grid Center: ({center_x:.2f}, {center_y:.2f})")
-        print(f"DEBUG: Ground Candidates: {candidate_count}")
-        if best_idx:
-            return [best_idx]
-        return []
 
 
