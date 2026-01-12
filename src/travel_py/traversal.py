@@ -108,3 +108,56 @@ def run_traversal(
         state.iteration += 1
 
     return state
+
+
+# =========================
+# SubCell Traversal (TGS)
+# =========================
+from .types import SubCellIndex, SubCell
+
+def run_subcell_traversal(
+    *,
+    graph: "TraversabilityGraph",
+    start_nodes: Iterable[SubCellIndex],
+    accept_fn: Callable[[SubCellIndex, SubCellIndex], bool],
+) -> Tuple[Set[SubCellIndex], int]:
+    """
+    Run BFS on SubCell graph.
+    
+    Returns:
+        visited: Set of reachable SubCellIndices.
+        rejected_count: Number of rejected edges (for stats).
+    """
+    queue: Deque[SubCellIndex] = deque()
+    visited: Set[SubCellIndex] = set()
+    
+    for s in start_nodes:
+        queue.append(s)
+        visited.add(s)
+        
+    rejected_count = 0
+    
+    while queue:
+        current_idx = queue.popleft()
+        
+        neighbors = graph.get_neighbor_subcells(current_idx)
+        
+        for n_idx in neighbors:
+            if n_idx in visited:
+                continue
+                
+            # Check acceptance (LCC, label, etc.)
+            # accept_fn should handle existence checks too if needed, 
+            # or we do it here.
+            # Let's assume accept_fn handles logic.
+            # But we need to ensure existence to pass to accept_fn?
+            # accept_fn takes INDICES.
+            
+            if accept_fn(current_idx, n_idx):
+                visited.add(n_idx)
+                queue.append(n_idx)
+            else:
+                rejected_count += 1
+                
+    return visited, rejected_count
+

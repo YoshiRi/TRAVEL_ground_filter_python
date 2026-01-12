@@ -84,6 +84,16 @@ class SubCell:
     label: CellState = CellState.UNKNOWN
 
 
+@dataclass(frozen=True)
+class SubCellIndex:
+    """
+    Unique identifier for a SubCell (TGS).
+    """
+    i: int   # grid row (ix)
+    j: int   # grid col (iy)
+    tri: int # 0..3
+
+
 @dataclass
 class TraversalState:
     """

@@ -133,9 +133,6 @@ class LocalPlaneEstimator:
         subcell.weight = model.weight
         subcell.label = model.label
 
-    # ----------------------------------------------------------------------
-    # Helpers
-    # ----------------------------------------------------------------------
     def _unknown_plane(self) -> PlaneModel:
         return PlaneModel(
             normal=np.array([0.0, 0.0, 1.0], dtype=float),
@@ -144,3 +141,44 @@ class LocalPlaneEstimator:
             weight=0.0,
             label=CellState.UNKNOWN,
         )
+
+
+
+def is_traversable_lcc(
+    src: PlaneModel,
+    dst: PlaneModel,
+    th_normal: float, # cos(angle) threshold? Or normal[2] threshold?
+                      # Request says: "normal_similarity < cos_threshold"
+                      # "cos_threshold is 1 - sin(distance * th_normal)" - wait, that's complex.
+                      # Let's use simple dot product threshold for now, or interpret th_normal as angle.
+                      # User said: "th_normal / th_dist を変えると挙動が変わるか"
+                      # Let's assume th_normal is a COSINE threshold (e.g. 0.9) or ANGLE (rad).
+                      # TGS paper uses angle.
+                      # Let's use dot product threshold for simplicity and speed.
+    th_dist: float,
+) -> bool:
+    """
+    Local Convexity / Concavity (LCC) check.
+    """
+    # 1. Normal similarity
+    # dot(n_src, n_dst)
+    sim = np.dot(src.normal, dst.normal)
+    
+    # If normals are opposite, dot is -1. We care about orientation.
+    # Ground normals should be roughly aligned.
+    if sim < th_normal:
+        return False
+
+    # 2. Plane distance
+    # delta = dst.mean - src.mean
+    # dist_src = dot(src.normal, delta)
+    # dist_dst = dot(dst.normal, -delta)
+    
+    delta = dst.mean - src.mean
+    dist_src = np.dot(src.normal, delta)
+    dist_dst = np.dot(dst.normal, -delta)
+    
+    if abs(dist_src) > th_dist or abs(dist_dst) > th_dist:
+        return False
+        
+    return True

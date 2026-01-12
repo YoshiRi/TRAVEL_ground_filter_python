@@ -110,8 +110,14 @@ def main() -> None:
     from travel_py.plane import LocalPlaneEstimator
     from travel_py.types import CellState
 
-    plane_estimator = LocalPlaneEstimator()
-
+    plane_estimator = LocalPlaneEstimator(
+        num_lpr=20,
+        th_seeds=0.5,
+        th_outlier=0.5,
+        th_normal=0.9, # > 0.9 means < 25 degrees tilt approx
+        min_points=3,
+        th_weight=0.0,
+    )
     stats = {
         CellState.GROUND: 0,
         CellState.NON_GROUND: 0,
@@ -130,6 +136,95 @@ def main() -> None:
     print(f"  Non-Ground     : {stats[CellState.NON_GROUND]}")
     print(f"  Unknown        : {stats[CellState.UNKNOWN]}")
     
+    # -------------------------
+    # TGS Step 2: Traversal (BFS + LCC)
+    # -------------------------
+    from travel_py.graph import TraversabilityGraph
+    from travel_py.traversal import run_subcell_traversal
+    from travel_py.plane import is_traversable_lcc, PlaneModel
+    
+    print("Running Traversal (BFS + LCC)...")
+    graph = TraversabilityGraph(grid)
+    start_nodes = graph.find_dominant_subcells()
+    print(f"Traversal Seeds: {len(start_nodes)}")
+    
+    def accept_lcc(src_idx, dst_idx) -> bool:
+        # 1. Retrieve SubCells
+        src_cell = grid.cells.get((src_idx.i, src_idx.j))
+        dst_cell = grid.cells.get((dst_idx.i, dst_idx.j))
+        
+        if not src_cell or not dst_cell:
+            return False
+            
+        src_sub = src_cell.subcells.get(src_idx.tri)
+        dst_sub = dst_cell.subcells.get(dst_idx.tri)
+        
+        if not src_sub or not dst_sub:
+            return False
+            
+        # 2. Check Candidate Status (Step 1 result)
+        if dst_sub.label != CellState.GROUND:
+            return False
+            
+        # 3. Check Data Availability
+        if src_sub.normal is None or dst_sub.normal is None:
+            return False
+            
+        # 4. LCC Check
+        src_plane = PlaneModel(
+            normal=src_sub.normal,
+            mean=src_sub.mean,
+            d=src_sub.d,
+            weight=src_sub.weight,
+            label=src_sub.label
+        )
+        dst_plane = PlaneModel(
+            normal=dst_sub.normal,
+            mean=dst_sub.mean,
+            d=dst_sub.d,
+            weight=dst_sub.weight,
+            label=dst_sub.label
+        )
+        
+        return is_traversable_lcc(
+            src_plane, 
+            dst_plane, 
+            th_normal=0.9, 
+            th_dist=0.5
+        )
+
+    visited, rejected_count = run_subcell_traversal(
+        graph=graph,
+        start_nodes=start_nodes,
+        accept_fn=accept_lcc,
+    )
+    
+    # Apply results
+    ground_final = 0
+    unknown_final = 0
+    
+    from travel_py.types import SubCellIndex
+    
+    for cell in grid.iter_cells():
+        for t, sub in cell.subcells.items():
+            idx = SubCellIndex(cell.index[0], cell.index[1], t)
+            
+            if idx in visited:
+                sub.label = CellState.GROUND
+                ground_final += 1
+            else:
+                # Was ground, but not reachable -> UNKNOWN
+                if sub.label == CellState.GROUND:
+                    sub.label = CellState.UNKNOWN
+                
+                if sub.label == CellState.UNKNOWN:
+                    unknown_final += 1
+                    
+    print(f"Traversal Rejected (LCC): {rejected_count}")
+    print(f"Final Ground SubCells: {ground_final}")
+
+    # SKIP Original Traversal
+    return
 
     # -------------------------
     # Seed selection
