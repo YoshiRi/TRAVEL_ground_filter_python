@@ -152,6 +152,15 @@ def main() -> None:
     # Debug flag for traversal acceptance
     debug_traversal = False # Set to True to see rejection reasons
     
+    rejection_stats = {
+        "NO_SUBCELL": 0,
+        "NOT_GROUND_CANDIDATE": 0,
+        "NO_PLANE": 0,
+        "LOW_NORMAL": 0,
+        "SIMILARITY_TOO_LOW": 0,
+        "DIST_TOO_LARGE": 0,
+    }
+    
     def accept_lcc(src_idx, dst_idx) -> bool:
         # 1. Retrieve SubCells
         src_cell = grid.cells.get((src_idx.i, src_idx.j))
@@ -159,6 +168,7 @@ def main() -> None:
         
         if not src_cell or not dst_cell:
             if debug_traversal: print(f"Reject: Missing cell {src_idx} or {dst_idx}")
+            rejection_stats["NO_SUBCELL"] += 1
             return False
             
         src_sub = src_cell.subcells.get(src_idx.tri)
@@ -166,19 +176,30 @@ def main() -> None:
         
         if not src_sub or not dst_sub:
             if debug_traversal: print(f"Reject: Missing subcell {src_idx} or {dst_idx}")
+            rejection_stats["NO_SUBCELL"] += 1
             return False
             
         # 2. Check Candidate Status (Step 1 result)
         if dst_sub.label != CellState.GROUND:
             if debug_traversal: print(f"Reject: Dst {dst_idx} is {dst_sub.label}")
+            rejection_stats["NOT_GROUND_CANDIDATE"] += 1
             return False
             
         # 3. Check Data Availability
         if src_sub.normal is None or dst_sub.normal is None:
             if debug_traversal: print(f"Reject: Missing normal {src_idx} or {dst_idx}")
+            rejection_stats["NO_PLANE"] += 1
             return False
             
-        # 4. LCC Check
+        # 4. Vertical Normal Check (Minimal Safe)
+        # Ensure both planes are roughly horizontal (ground-like)
+        # This prevents traversing onto walls even if they are "connected"
+        if src_sub.normal[2] < 0.9 or dst_sub.normal[2] < 0.9:
+            if debug_traversal: print(f"Reject: Not vertical enough {src_idx} or {dst_idx}")
+            rejection_stats["LOW_NORMAL"] += 1
+            return False
+
+        # 5. LCC Check (Distance & Similarity)
         src_plane = PlaneModel(
             normal=src_sub.normal,
             mean=src_sub.mean,
@@ -194,15 +215,22 @@ def main() -> None:
             label=dst_sub.label
         )
         
-        return is_traversable_lcc(
+        is_ok, reason = is_traversable_lcc(
             src_plane, 
             dst_plane, 
             th_normal=0.9, 
             th_dist=0.5,
             verbose=debug_traversal
         )
+        
+        if not is_ok:
+            if reason in rejection_stats:
+                rejection_stats[reason] += 1
+            return False
+            
+        return True
 
-    visited, rejected_count = run_subcell_traversal(
+    visited, rejected_count, max_depth = run_subcell_traversal(
         graph=graph,
         start_nodes=start_nodes,
         accept_fn=accept_lcc,
@@ -229,8 +257,16 @@ def main() -> None:
                 if sub.label == CellState.UNKNOWN:
                     unknown_final += 1
                     
-    print(f"Traversal Rejected (LCC): {rejected_count}")
-    print(f"Final Ground SubCells: {ground_final}")
+    print("Traversal Summary:")
+    print(f"  Seeds          : {len(start_nodes)}")
+    print(f"  Visited        : {len(visited)}")
+    print(f"  Rejected (Total): {rejected_count}")
+    print(f"  Max Depth      : {max_depth}")
+    print(f"  Final Ground   : {ground_final}")
+    print("  Rejection Reasons:")
+    for reason, count in rejection_stats.items():
+        if count > 0:
+            print(f"    {reason:<20}: {count}")
 
     # SKIP Original Traversal
     return

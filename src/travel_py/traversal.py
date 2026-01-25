@@ -143,20 +143,28 @@ def run_subcell_traversal(
     -------
     visited:
         Set of reachable SubCellIndices.
+        NOTE: This represents structural reachability in the graph.
+        Semantic labeling (e.g. setting CellState.GROUND) should be done
+        by the caller based on this set, not inside the traversal.
     rejected_count:
         Number of rejected edges (where accept_fn returned False).
+    max_depth:
+        Maximum BFS depth reached.
     """
-    queue: Deque[SubCellIndex] = deque()
+    queue: Deque[Tuple[SubCellIndex, int]] = deque()
     visited: Set[SubCellIndex] = set()
     
     for s in start_nodes:
-        queue.append(s)
+        queue.append((s, 0))
         visited.add(s)
         
     rejected_count = 0
+    max_depth = 0
     
     while queue:
-        current_idx = queue.popleft()
+        current_idx, depth = queue.popleft()
+        if depth > max_depth:
+            max_depth = depth
         
         neighbors = graph.get_neighbor_subcells(current_idx)
         
@@ -165,17 +173,11 @@ def run_subcell_traversal(
                 continue
                 
             # Check acceptance (LCC, label, etc.)
-            # accept_fn should handle existence checks too if needed, 
-            # or we do it here.
-            # Let's assume accept_fn handles logic.
-            # But we need to ensure existence to pass to accept_fn?
-            # accept_fn takes INDICES.
-            
             if accept_fn(current_idx, n_idx):
                 visited.add(n_idx)
-                queue.append(n_idx)
+                queue.append((n_idx, depth + 1))
             else:
                 rejected_count += 1
                 
-    return visited, rejected_count
+    return visited, rejected_count, max_depth
 

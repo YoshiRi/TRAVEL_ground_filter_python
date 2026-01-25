@@ -1,6 +1,6 @@
 import numpy as np
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 from .types import CellState
 
 
@@ -157,9 +157,10 @@ def is_traversable_lcc(
                       # Let's use dot product threshold for simplicity and speed.
     th_dist: float,
     verbose: bool = False,
-) -> bool:
+) -> Tuple[bool, str]:
     """
     Local Convexity / Concavity (LCC) check.
+    Returns: (is_traversable, rejection_reason)
     """
     # 1. Normal similarity
     # dot(n_src, n_dst)
@@ -170,7 +171,7 @@ def is_traversable_lcc(
     if sim < th_normal:
         if verbose:
             print(f"  [LCC Reject] Normal similarity {sim:.3f} < {th_normal}")
-        return False
+        return False, "SIMILARITY_TOO_LOW"
 
     # 2. Plane distance
     # delta = dst.mean - src.mean
@@ -184,6 +185,6 @@ def is_traversable_lcc(
     if abs(dist_src) > th_dist or abs(dist_dst) > th_dist:
         if verbose:
             print(f"  [LCC Reject] Dist src={abs(dist_src):.3f}, dst={abs(dist_dst):.3f} > {th_dist}")
-        return False
+        return False, "DIST_TOO_LARGE"
         
-    return True
+    return True, "NONE"
