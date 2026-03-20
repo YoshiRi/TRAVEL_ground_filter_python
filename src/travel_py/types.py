@@ -82,6 +82,9 @@ class SubCell:
     d: Optional[float] = None
     weight: float = 0.0
     label: CellState = CellState.UNKNOWN
+    # Indices into the original point cloud (same semantics as Cell.point_indices).
+    # Empty list means the information is unavailable (e.g. manually constructed SubCell).
+    point_indices: List[int] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

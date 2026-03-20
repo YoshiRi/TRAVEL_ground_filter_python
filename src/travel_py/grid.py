@@ -231,19 +231,14 @@ class Grid:
             # 2: else (includes [3pi/4, pi] and [-pi, -3pi/4))
             
             # Create SubCells
+            cell_point_indices = np.array(cell.point_indices, dtype=np.int64)
             for t_id in range(4):
                 mask_t = (tri_ids == t_id)
                 sub_points = cell_points[mask_t]
-                # We store a COPY of points in SubCell for now (easier than indices)
-                # User requested: cell.subcells[tri].points.append(point)
-                # But bulk init is better.
-                
-                # Initialize SubCell even if empty? 
-                # "cell.subcells[tri].points.append(point)" implies existence.
-                # Let's create it.
-                
-                from .types import SubCell # Import inside to avoid circular if any
-                
-                cell.subcells[t_id] = SubCell(points=sub_points)
+                sub_indices = cell_point_indices[mask_t].tolist()
+
+                from .types import SubCell  # avoid circular import at module level
+
+                cell.subcells[t_id] = SubCell(points=sub_points, point_indices=sub_indices)
 
         return grid
