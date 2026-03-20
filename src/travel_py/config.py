@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Tuple, Optional
 import yaml
 from pathlib import Path
@@ -44,8 +44,9 @@ class AcceptConfig:
     """
     Traversal acceptance parameters.
     """
-    max_height_diff: float = 0.5
-    max_slope: Optional[float] = None  # None = disable slope check
+    max_height_diff: float = 0.5       # th_dist for is_traversable_lcc
+    th_normal: float = 0.9             # minimum normal[2] for both planes and LCC similarity
+    max_slope: Optional[float] = None  # reserved; currently unused
 
 
 # =========================
@@ -64,10 +65,10 @@ class DebugConfig:
 # =========================
 @dataclass
 class GlobalConfig:
-    grid: GridConfig = GridConfig()
-    seed: SeedConfig = SeedConfig()
-    accept: AcceptConfig = AcceptConfig()
-    debug: DebugConfig = DebugConfig()
+    grid: GridConfig = field(default_factory=GridConfig)
+    seed: SeedConfig = field(default_factory=SeedConfig)
+    accept: AcceptConfig = field(default_factory=AcceptConfig)
+    debug: DebugConfig = field(default_factory=DebugConfig)
 
 
 # =========================

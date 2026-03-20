@@ -13,24 +13,13 @@ from travel_py.seed import (
     SmallHeightRange,
     LowMeanHeight,
 )
-from travel_py.accept import (
-    TraversalAcceptConfig,
-    accept_height_and_slope,
-)
-from travel_py.traversal import run_traversal
 from travel_py.labeling import label_points_from_cells
 from travel_py.debug_viz import (
-    plot_cell_scalar,
     plot_cell_state,
-    plot_reject_reason,
-    plot_iteration,
     plot_filtered_points_xy,
 )
 from travel_py.config import (
     GridConfig,
-    SeedConfig,
-    AcceptConfig,
-    DebugConfig,
     load_config,
 )
 
@@ -144,9 +133,11 @@ def main() -> None:
     from travel_py.plane import is_traversable_lcc, PlaneModel
     from travel_py.seed import find_dominant_subcells
     
+    accept_cfg = global_cfg.accept
+
     print("Running Traversal (BFS + LCC)...")
     graph = TraversabilityGraph(grid)
-    start_nodes = find_dominant_subcells(grid)
+    start_nodes = find_dominant_subcells(grid, top_k=global_cfg.seed.top_k)
     print(f"Traversal Seeds: {len(start_nodes)}")
     
     # Debug flag for traversal acceptance
@@ -194,7 +185,7 @@ def main() -> None:
         # 4. Vertical Normal Check (Minimal Safe)
         # Ensure both planes are roughly horizontal (ground-like)
         # This prevents traversing onto walls even if they are "connected"
-        if src_sub.normal[2] < 0.9 or dst_sub.normal[2] < 0.9:
+        if src_sub.normal[2] < accept_cfg.th_normal or dst_sub.normal[2] < accept_cfg.th_normal:
             if debug_traversal: print(f"Reject: Not vertical enough {src_idx} or {dst_idx}")
             rejection_stats["LOW_NORMAL"] += 1
             return False
@@ -214,12 +205,12 @@ def main() -> None:
             weight=dst_sub.weight,
             label=dst_sub.label
         )
-        
+
         is_ok, reason = is_traversable_lcc(
-            src_plane, 
-            dst_plane, 
-            th_normal=0.9, 
-            th_dist=0.5,
+            src_plane,
+            dst_plane,
+            th_normal=accept_cfg.th_normal,
+            th_dist=accept_cfg.max_height_diff,
             verbose=debug_traversal
         )
         
@@ -268,77 +259,38 @@ def main() -> None:
         if count > 0:
             print(f"    {reason:<20}: {count}")
 
-    # SKIP Original Traversal
-    return
+    # -------------------------
+    # Propagate SubCell labels to Cell state
+    # -------------------------
+    for cell in grid.iter_cells():
+        has_ground = any(sub.label == CellState.GROUND for sub in cell.subcells.values())
+        has_nonground = any(sub.label == CellState.NON_GROUND for sub in cell.subcells.values())
+        if has_ground:
+            cell.state = CellState.GROUND
+        elif has_nonground:
+            cell.state = CellState.NON_GROUND
 
     # -------------------------
-    # Seed selection
-    # -------------------------
-    seed_cfg = global_cfg.seed
-
-    criteria = [
-        MinPointCount(seed_cfg.min_points),
-    ]
-
-    if seed_cfg.use_height_range:
-        criteria.append(SmallHeightRange())
-
-    if seed_cfg.use_mean_height:
-        criteria.append(LowMeanHeight())
-
-    seed_selector = SeedSelector(
-        criteria=criteria,
-        top_k=seed_cfg.top_k,
-    )
-    seed_cells = seed_selector.select(grid.iter_cells())
-
-    if not seed_cells:
-        raise RuntimeError("No seed cells selected")
-
-    # -------------------------
-    # Traversal (accept config)
-    # -------------------------
-    accept_cfg = global_cfg.accept
-
-    def accept_fn(current, neighbor):
-        return accept_height_and_slope(
-            current,
-            neighbor,
-            config=TraversalAcceptConfig(
-                max_height_diff=accept_cfg.max_height_diff,
-                max_slope=accept_cfg.max_slope,
-                cell_size=grid_cfg.resolution,
-            ),
-        )
-
-    traversal_state = run_traversal(
-        seed_cells=seed_cells,
-        cells=grid.cells,
-        connectivity=4,
-        accept_fn=accept_fn,
-    )
-
-    # -------------------------
-    # Labeling
+    # Label propagation
     # -------------------------
     labels = label_points_from_cells(
         cells=grid.cells,
         num_points=num_points,
     )
 
-    print("Traversal finished:")
-    print(f"  ground cells   : {traversal_state.num_ground}")
-    print(f"  rejected cells : {traversal_state.num_rejected}")
+    ground_pts = int(np.sum(labels == 1))
+    nonground_pts = int(np.sum(labels == 0))
+    unknown_pts = int(np.sum(labels == -1))
+    print("Label Propagation:")
+    print(f"  Ground points    : {ground_pts}")
+    print(f"  Non-ground points: {nonground_pts}")
+    print(f"  Unknown points   : {unknown_pts}")
 
     # -------------------------
     # Visualization
     # -------------------------
     if args.viz:
-        plot_cell_scalar(grid.iter_cells(), value="min_z")
-        plot_cell_scalar(grid.iter_cells(), value="height_range")
         plot_cell_state(grid.iter_cells())
-        plot_reject_reason(grid.iter_cells())
-        plot_iteration(grid.iter_cells())
         plot_filtered_points_xy(points, labels)
 
 
