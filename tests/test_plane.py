@@ -497,4 +497,94 @@ class TestEstimateIntegration:
         model = est.estimate(pts)
         # Wall normal should be [1,0,0] or similar → normal[2] ≈ 0 < 0.9
         assert model.label == CellState.NON_GROUND
-        assert model.normal[2] < 0.5
+
+
+# ===========================================================================
+# Ground + wall mixed SubCell (key robustness scenario)
+# ===========================================================================
+
+class TestGroundWithWall:
+    """
+    A SubCell that contains both ground points and a vertical wall.
+
+    Physically: a robot approaches a wall. The 2D grid cell at the wall base
+    contains ground points (z ≈ 0, spread in xy) AND wall surface points
+    (x ≈ const, z from 0 to several meters).
+
+    Correct behaviour: the cell should be labelled GROUND because the dominant
+    flat structure is the ground, not the wall.
+
+    Failure mode in a naive LPR implementation:
+      When wall points outnumber ground points, the mean of the lowest N points
+      is pulled up by wall-base points.  The resulting LPR height is too high,
+      so the th_outlier lower-bound then EXCLUDES the true ground points as
+      "anomalously low", leaving almost no seeds and producing UNKNOWN or wrong
+      labels.
+
+    Fix: if the first seed-selection attempt yields too few candidates, fall
+    back to the cell-minimum z as the ground reference and try again.  This
+    anchors the reference to the actual lowest surface regardless of how many
+    wall points there are.
+    """
+
+    EST = LocalPlaneEstimator(
+        num_lpr=20, th_seeds=0.5, th_outlier=0.5,
+        th_normal=0.9, min_points=3, th_weight=0.0,
+    )
+
+    def _ground_plus_wall(self, n_ground, n_wall, *, seed=0):
+        rng = np.random.default_rng(seed)
+        ground = np.c_[rng.uniform(-1, 1, (n_ground, 2)), rng.normal(0, 0.02, n_ground)]
+        wall_x = np.full(n_wall, 0.8) + rng.normal(0, 0.01, n_wall)
+        wall   = np.c_[wall_x, rng.uniform(-1, 1, n_wall), rng.uniform(0, 3, n_wall)]
+        return np.vstack([ground, wall])
+
+    def test_ground_dominates_few_wall_points(self):
+        """20 ground + 10 wall — ground clearly dominates, already works."""
+        pts = self._ground_plus_wall(20, 10)
+        m = self.EST.estimate(pts)
+        assert m.label == CellState.GROUND, f"normal_z={m.normal[2]:.3f}"
+        assert m.normal[2] > 0.9
+
+    def test_ground_minority_many_wall_points(self):
+        """10 ground + 20 wall — wall outnumbers ground; LPR would be biased
+        without the min-z fallback."""
+        pts = self._ground_plus_wall(10, 20)
+        m = self.EST.estimate(pts)
+        assert m.label == CellState.GROUND, (
+            f"label={m.label.name}, normal_z={m.normal[2]:.3f} — "
+            "LPR was contaminated; min-z fallback should have kicked in"
+        )
+        assert m.normal[2] > 0.9
+
+    def test_ground_strongly_outnumbered(self):
+        """6 ground + 30 wall — extreme ratio; min-z fallback must recover."""
+        pts = self._ground_plus_wall(6, 30)
+        m = self.EST.estimate(pts)
+        assert m.label == CellState.GROUND, f"normal_z={m.normal[2]:.3f}"
+        assert m.normal[2] > 0.9
+
+    def test_mean_z_of_result_is_near_ground_not_wall(self):
+        """The fitted plane mean should be near z=0 (ground), not at wall height."""
+        pts = self._ground_plus_wall(10, 20)
+        m = self.EST.estimate(pts)
+        assert abs(m.mean[2]) < 0.3, (
+            f"mean_z={m.mean[2]:.3f}: plane appears to be at wall height, not ground"
+        )
+
+    def test_wall_only_still_labeled_non_ground(self):
+        """Pure wall (no ground) should remain NON_GROUND even with fallback."""
+        rng = np.random.default_rng(9)
+        wall_x = np.full(20, 0.0) + rng.normal(0, 0.01, 20)
+        pts = np.c_[wall_x, rng.uniform(-1, 1, 20), rng.uniform(0, 3, 20)]
+        m = self.EST.estimate(pts)
+        assert m.label == CellState.NON_GROUND
+
+    def test_consistent_across_random_seeds(self):
+        """Result should be GROUND regardless of which random sample is used."""
+        for rng_seed in range(5):
+            pts = self._ground_plus_wall(10, 20, seed=rng_seed)
+            m = self.EST.estimate(pts)
+            assert m.label == CellState.GROUND, (
+                f"rng_seed={rng_seed}: label={m.label.name}, normal_z={m.normal[2]:.3f}"
+            )

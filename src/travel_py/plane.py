@@ -14,16 +14,49 @@ class PlaneModel:
 
 
 class LocalPlaneEstimator:
+    """
+    Estimate the local ground plane inside a SubCell using LPR + PCA.
+
+    Algorithm (4 phases):
+
+    Phase 1 – Ground level detection (LPR):
+        Sort points by height.  Average the lowest num_lpr points to obtain a
+        robust ground-height reference (LPR height).  Averaging over several
+        points reduces the effect of individual sensor-noise spikes below ground.
+
+    Phase 2 – Ground candidate selection:
+        Accept points whose height lies in
+            [lpr_height − th_outlier,  lpr_height + th_seeds].
+        Points above th_seeds above the LPR height are likely walls or
+        obstacles; points below th_outlier below are anomalous low noise.
+
+        Fallback: when too few candidates survive — which happens when many
+        wall points inflate the LPR mean — anchor instead on the cell's
+        *minimum* z (the single lowest measured point).  That point is
+        always on the ground surface, never on a wall.
+
+    Phase 3 – Plane fitting (PCA):
+        Build the 3×3 covariance matrix of the candidates.  The eigenvector
+        corresponding to the smallest eigenvalue points in the direction of
+        least variance, i.e. perpendicular to the dominant flat surface.
+        The normal is flipped to face upward if necessary.
+
+    Phase 4 – Labelling:
+        Mark as GROUND when the normal is nearly vertical (normal[2] > th_normal)
+        and the surface is sufficiently flat (planarity weight > th_weight).
+        Otherwise mark NON_GROUND.
+    """
+
     def __init__(
         self,
         num_lpr: int = 20,
         th_seeds: float = 0.5,
         th_outlier: float = 0.5,
-        th_normal: float = 0.9,   # normal[2] threshold for ground
-        th_weight: float = 1e-2,  # minimum reliable planarity
-        min_points: int = 6,      # minimum points for stable PCA
+        th_normal: float = 0.9,
+        th_weight: float = 1e-2,
+        min_points: int = 6,
         eps: float = 1e-6,
-        max_weight: float = 1e3,  # clip to avoid explosion
+        max_weight: float = 1e3,
     ):
         self.num_lpr = num_lpr
         self.th_seeds = th_seeds
@@ -35,62 +68,56 @@ class LocalPlaneEstimator:
         self.max_weight = max_weight
 
     def estimate(self, points: np.ndarray) -> PlaneModel:
-        """
-        Estimate a local plane using LPR seed selection + PCA.
-        Designed for Travel / TGS-style cell-based ground estimation.
-        """
-
-        # ------------------------------------------------------------------
-        # 0. Basic validation
-        # ------------------------------------------------------------------
         if points.shape[0] < self.min_points:
             return self._unknown_plane()
 
         # ------------------------------------------------------------------
-        # 1. LPR (Lowest Point Representative)
+        # Phase 1: Ground level detection (LPR)
         # ------------------------------------------------------------------
         sorted_indices = np.argsort(points[:, 2])
         n_lpr = min(self.num_lpr, points.shape[0])
-        lpr_points = points[sorted_indices[:n_lpr]]
-        lpr_height = np.mean(lpr_points[:, 2])
+        lpr_height = points[sorted_indices[:n_lpr], 2].mean()
+        min_z = points[sorted_indices[0], 2]
 
         # ------------------------------------------------------------------
-        # 2. Seed selection
+        # Phase 2: Ground candidate selection
         # ------------------------------------------------------------------
-        mask = (
-            (points[:, 2] < lpr_height + self.th_seeds) &
-            (points[:, 2] > lpr_height - self.th_outlier)
-        )
-        seeds = points[mask]
+        # Accept points within [lpr_height − th_outlier, lpr_height + th_seeds].
+        seeds = self._select_seeds(points, lpr_height)
 
-        # If not enough seeds, do NOT fallback to all points
+        # Wall-contamination recovery:
+        # When many tall-obstacle points inflate the LPR mean, the lower bound
+        # (lpr_height − th_outlier) may rise above the actual cell minimum,
+        # falsely marking true ground points as "anomalously low" outliers.
+        # Detection: the seed window's lower bound exceeds the cell minimum
+        #   ↔  lpr_height − th_outlier > min_z
+        # Recovery: re-anchor on min_z (always a real surface point) and
+        # accept its candidate set — but only if enough points exist there.
+        # If the fallback window is also sparse, the minimum was itself an
+        # isolated noise spike; keep the original LPR-based seeds.
+        if lpr_height - self.th_outlier > min_z:
+            fallback = self._select_seeds(points, min_z)
+            if fallback.shape[0] >= self.min_points:
+                seeds = fallback
+
         if seeds.shape[0] < self.min_points:
             return self._unknown_plane()
 
         # ------------------------------------------------------------------
-        # 3. PCA
+        # Phase 3: Plane fitting (PCA)
         # ------------------------------------------------------------------
-        mean = np.mean(seeds, axis=0)
+        mean = seeds.mean(axis=0)
         centered = seeds - mean
 
-        # Covariance with regularization for numerical stability
-        cov = (
-            np.dot(centered.T, centered) /
-            max(seeds.shape[0] - 1, 1)
-        )
+        cov = np.dot(centered.T, centered) / max(len(seeds) - 1, 1)
         cov += self.eps * np.eye(3)
 
         eigenvalues, eigenvectors = np.linalg.eigh(cov)
-        # eigenvalues are sorted ascending:
-        # s0 <= s1 <= s2
+        normal = eigenvectors[:, 0]  # smallest eigenvalue → plane normal
 
-        normal = eigenvectors[:, 0]
-
-        # Ensure upward normal
         if normal[2] < 0.0:
-            normal = -normal
+            normal = -normal  # ensure upward-facing normal
 
-        # Normalize normal explicitly
         normal_norm = np.linalg.norm(normal)
         if normal_norm < self.eps:
             return self._unknown_plane()
@@ -99,39 +126,33 @@ class LocalPlaneEstimator:
         d = -np.dot(normal, mean)
 
         # ------------------------------------------------------------------
-        # 4. Planarity weight
+        # Phase 4: Planarity weight and labelling
         # ------------------------------------------------------------------
         s0, s1, s2 = eigenvalues
+        weight = min((s0 + s1) * s1 / (s0 * s2 + self.eps), self.max_weight)
 
-        # Planarity-style weight (TGS-inspired)
-        raw_weight = (s0 + s1) * s1 / (s0 * s2 + self.eps)
-
-        # Clip & stabilize
-        weight = min(raw_weight, self.max_weight)
-
-        # ------------------------------------------------------------------
-        # 5. Labeling
-        # ------------------------------------------------------------------
         if normal[2] > self.th_normal and weight > self.th_weight:
             label = CellState.GROUND
         else:
             label = CellState.NON_GROUND
 
-        return PlaneModel(
-            normal=normal,
-            mean=mean,
-            d=d,
-            weight=weight,
-            label=label,
+        return PlaneModel(normal=normal, mean=mean, d=d, weight=weight, label=label)
+
+    def _select_seeds(self, points: np.ndarray, ref_z: float) -> np.ndarray:
+        """Return points within the height band [ref_z − th_outlier, ref_z + th_seeds]."""
+        mask = (
+            (points[:, 2] < ref_z + self.th_seeds) &
+            (points[:, 2] > ref_z - self.th_outlier)
         )
-    
+        return points[mask]
+
     def estimate_and_update(self, subcell) -> None:
         model = self.estimate(subcell.points)
         subcell.normal = model.normal
-        subcell.mean = model.mean
-        subcell.d = model.d
+        subcell.mean   = model.mean
+        subcell.d      = model.d
         subcell.weight = model.weight
-        subcell.label = model.label
+        subcell.label  = model.label
 
     def _unknown_plane(self) -> PlaneModel:
         return PlaneModel(
@@ -143,48 +164,37 @@ class LocalPlaneEstimator:
         )
 
 
-
 def is_traversable_lcc(
     src: PlaneModel,
     dst: PlaneModel,
-    th_normal: float, # cos(angle) threshold? Or normal[2] threshold?
-                      # Request says: "normal_similarity < cos_threshold"
-                      # "cos_threshold is 1 - sin(distance * th_normal)" - wait, that's complex.
-                      # Let's use simple dot product threshold for now, or interpret th_normal as angle.
-                      # User said: "th_normal / th_dist を変えると挙動が変わるか"
-                      # Let's assume th_normal is a COSINE threshold (e.g. 0.9) or ANGLE (rad).
-                      # TGS paper uses angle.
-                      # Let's use dot product threshold for simplicity and speed.
+    th_normal: float,
     th_dist: float,
     verbose: bool = False,
 ) -> Tuple[bool, str]:
     """
-    Local Convexity / Concavity (LCC) check.
+    Local Convexity / Concavity (LCC) check between two adjacent planes.
+
+    Two planes are traversable when:
+      1. Their normals are nearly aligned (similar surface orientation).
+      2. Neither plane is far above or below the other (small height step).
+
     Returns: (is_traversable, rejection_reason)
     """
     # 1. Normal similarity
-    # dot(n_src, n_dst)
     sim = np.dot(src.normal, dst.normal)
-    
-    # If normals are opposite, dot is -1. We care about orientation.
-    # Ground normals should be roughly aligned.
     if sim < th_normal:
         if verbose:
             print(f"  [LCC Reject] Normal similarity {sim:.3f} < {th_normal}")
         return False, "SIMILARITY_TOO_LOW"
 
-    # 2. Plane distance
-    # delta = dst.mean - src.mean
-    # dist_src = dot(src.normal, delta)
-    # dist_dst = dot(dst.normal, -delta)
-    
-    delta = dst.mean - src.mean
+    # 2. Plane distance: project the inter-mean vector onto each plane's normal.
+    delta    = dst.mean - src.mean
     dist_src = np.dot(src.normal, delta)
     dist_dst = np.dot(dst.normal, -delta)
-    
+
     if abs(dist_src) > th_dist or abs(dist_dst) > th_dist:
         if verbose:
             print(f"  [LCC Reject] Dist src={abs(dist_src):.3f}, dst={abs(dist_dst):.3f} > {th_dist}")
         return False, "DIST_TOO_LARGE"
-        
+
     return True, "NONE"
