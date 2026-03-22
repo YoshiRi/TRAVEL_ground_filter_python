@@ -1,5 +1,5 @@
 grid:
-  resolution: 2
+  resolution: 5
   origin_xy: [-50.0, -50.0]
   size_xy: [200, 200]
 
@@ -7,11 +7,11 @@ seed:
   min_points: 3
   use_height_range: true
   use_mean_height: true
-  top_k: 3
+  top_k: 5
 
 accept:
-  max_height_diff: 0.3
-  max_slope: 0.4
+  max_height_diff: 0.5
+  th_normal: 0.9
 
 debug:
-  enable_viz: true
+  enable_viz: false
