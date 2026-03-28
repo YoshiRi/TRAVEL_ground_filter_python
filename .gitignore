@@ -33,13 +33,18 @@ Thumbs.db
 .idea/
 
 # Data (point clouds, logs, experiments)
-data/
+data/*
 datasets/
 outputs/
 logs/
 
+# Sample data for tests (tracked explicitly)
+!data/sample.npy
+!data/autoware_front.npy
+!data/sample_pcd/
+!data/sample_pcd/pointcloud_map.pcd
+
 # Temporary experiment files
 *.ply
-*.pcd
 *.npz
 *.csv
