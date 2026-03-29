@@ -1,7 +1,7 @@
 grid:
   resolution: 5
-  origin_xy: [-50.0, -50.0]
-  size_xy: [200, 200]
+  origin_xy: [-85.0, -85.0]
+  size_xy: [170, 170]
 
 seed:
   min_points: 3
