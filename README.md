@@ -162,3 +162,29 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest
 python tools/make_sample.py
 uv run python -m travel_py.main --points sample.npy --viz
 ```
+
+## GitHub Pages でのデモ公開
+
+`src/travel_py/main.py` は Python 実行環境が必要なため、そのまま GitHub Pages（静的ホスティング）で直接は動きません。  
+代わりに、このリポジトリでは **既存のパイプラインを再利用して静的JSONを出力し、ブラウザで描画する方式** を追加しました。
+
+```bash
+# 1) パイプラインを実行して GitHub Pages 用データを出力
+uv run python tools/export_github_pages.py --points data/sample.npy
+
+# 2) ローカル確認（例: Python標準HTTPサーバ）
+python -m http.server 8000
+# -> http://localhost:8000/docs/
+```
+
+生成物:
+- `docs/data/demo_payload.json`: Ground / Non-ground の推論結果付き点群
+- `docs/index.html`: Plotly ベースの静的3Dビューア
+
+### GitHub Actions で自動デプロイする場合の最小手順
+
+1. `tools/export_github_pages.py` を CI で実行して `docs/data/demo_payload.json` を更新
+2. `docs/` を Pages 公開対象ブランチにデプロイ
+
+この方式なら、`tools/rerun_debug.py` と同じ `travel_py.pipeline.run_pipeline` を使うため、
+ローカルのRerun可視化と GitHub Pages 向け可視化で同じ推論結果を共有できます。
