@@ -188,3 +188,22 @@ python -m http.server 8000
 
 この方式なら、`tools/rerun_debug.py` と同じ `travel_py.pipeline.run_pipeline` を使うため、
 ローカルのRerun可視化と GitHub Pages 向け可視化で同じ推論結果を共有できます。
+
+### merge 後にどこで見るか
+
+GitHub Pages を有効化済みなら、merge 後は次の URL で見られます。
+
+- ユーザー/組織ページ: `https://<user-or-org>.github.io/`
+- プロジェクトページ: `https://<user-or-org>.github.io/<repo-name>/`
+
+このリポジトリ構成では `docs/index.html` を公開しているため、通常は以下のどちらかです。
+
+- `https://<user-or-org>.github.io/<repo-name>/`
+- `https://<user-or-org>.github.io/<repo-name>/index.html`
+
+もし 404 になる場合は、リポジトリの **Settings > Pages** で公開ソースを確認してください。
+
+- Branch deploy の場合: `Branch = main` / `Folder = /docs`
+- Actions deploy の場合: workflow が `docs/` を成果物として deploy していること
+
+公開完了まで 1〜数分かかることがあります。反映後、`docs/data/demo_payload.json` を読み込んで 3D 表示されます。
