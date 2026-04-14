@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TRAVEL Ground Filter Demo</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <style>
+      body { font-family: sans-serif; margin: 0; }
+      header { padding: 12px 16px; background:#111; color:#fff; }
+      #meta { padding: 8px 16px; }
+      #plot { width: 100vw; height: calc(100vh - 110px); }
+    </style>
+  </head>
+  <body>
+    <header>TRAVEL Ground Filter / GitHub Pages Demo</header>
+    <div id="meta">loading...</div>
+    <div id="plot"></div>
+    <script>
+      async function boot() {
+        const res = await fetch('./data/demo_payload.json');
+        const payload = await res.json();
+        const p = payload.points;
+
+        const groups = [
+          {label: 1, name: 'Ground', color: '#32CD32'},
+          {label: 0, name: 'Non-ground', color: '#DC3C3C'},
+          {label: -1, name: 'Unknown', color: '#A0A0A0'},
+        ];
+
+        const traces = groups.map(g => {
+          const idx = p.label.map((v, i) => v === g.label ? i : -1).filter(i => i >= 0);
+          return {
+            type: 'scatter3d', mode: 'markers', name: g.name,
+            x: idx.map(i => p.x[i]), y: idx.map(i => p.y[i]), z: idx.map(i => p.z[i]),
+            marker: { size: 2, color: g.color, opacity: 0.8 },
+          };
+        });
+
+        Plotly.newPlot('plot', traces, {
+          margin: { l:0, r:0, b:0, t:0 },
+          scene: { aspectmode: 'data' }
+        }, { responsive: true });
+
+        document.getElementById('meta').textContent =
+          `source=${payload.meta.source} | total=${payload.meta.total_points} | shown=${payload.meta.shown_points}`;
+      }
+      boot();
+    </script>
+  </body>
+</html>
