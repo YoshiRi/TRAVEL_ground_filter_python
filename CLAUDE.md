@@ -56,7 +56,6 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest
 - `src/travel_py/traversal.py`
 - `src/travel_py/seed.py`
 - `src/travel_py/graph.py`
-- `src/travel_py/accept.py`
 
 ### 中優先度
 
@@ -84,7 +83,6 @@ plane.py         局所平面推定（LPR + PCA）、LCC判定
 graph.py         SubCell 隣接グラフ
 seed.py          シード選択
 traversal.py     BFS（SubCellベース）
-accept.py        旧セルベース受理基準（現在未使用）
 labeling.py      Cell.state → 点ラベル伝播
 debug_viz.py     Matplotlib 可視化
 ```
