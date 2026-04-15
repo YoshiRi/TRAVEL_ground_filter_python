@@ -402,47 +402,28 @@ async function initPyodide() {
 
   pyodide = await loadPyodide();
 
-  setStatus('numpy をロード中...', 25);
-  await pyodide.loadPackage('numpy');
+  setStatus('numpy をロード中...', 30);
+  await pyodide.loadPackage(['numpy', 'micropip']);
 
-  // Try pyyaml as built-in; fall back to micropip
-  try {
-    await pyodide.loadPackage('pyyaml');
-    setStatus('pyyaml をロード済み', 38);
-  } catch (_) {
-    setStatus('pyyaml を micropip でインストール中...', 38);
-    await pyodide.loadPackage('micropip');
-    await pyodide.runPythonAsync("import micropip; await micropip.install('pyyaml')");
-  }
+  // Fetch wheel filename from manifest (written by tools/build_web.py)
+  setStatus('wheel 情報を取得中...', 50);
+  const wheelInfo = await fetch('./wheel_info.json').then(r => {
+    if (!r.ok) throw new Error(`wheel_info.json の取得に失敗しました (HTTP ${r.status})`);
+    return r.json();
+  });
 
-  // Load travel_py source files into the Pyodide virtual filesystem
-  const modules = [
-    '__init__', 'types', 'config', 'grid', 'cell_features',
-    'plane', 'adjacency', 'graph', 'seed', 'traversal',
-    'labeling', 'pipeline',
-  ];
+  // Install the travel-py wheel; skip dependency resolution since
+  // open3d / rerun-sdk are not available in Pyodide.
+  setStatus(`travel-py (${wheelInfo.url}) をインストール中...`, 65);
+  await pyodide.runPythonAsync(`
+    import micropip
+    await micropip.install('./${wheelInfo.url}', deps=False)
+  `);
 
-  pyodide.FS.mkdirTree('/travel_py');
-
-  for (let i = 0; i < modules.length; i++) {
-    const mod = modules[i];
-    setStatus(
-      `travel_py モジュールをロード中... (${i + 1}/${modules.length})`,
-      42 + (i / modules.length) * 30,
-    );
-    const resp = await fetch(`./travel_py/${mod}.py`);
-    if (!resp.ok) throw new Error(`${mod}.py の取得に失敗しました (HTTP ${resp.status})`);
-    const code = await resp.text();
-    pyodide.FS.writeFile(`/travel_py/${mod}.py`, code);
-  }
-
-  setStatus('Python 環境を初期化中...', 74);
+  setStatus('Python 環境を初期化中...', 80);
 
   // Bootstrap Python environment
   pyodide.runPython(`
-import sys
-sys.path.insert(0, '/')
-
 from travel_py.pipeline import run_pipeline
 from travel_py.config import GlobalConfig, GridConfig, SeedConfig, AcceptConfig
 import numpy as np
@@ -506,7 +487,7 @@ def run_with_params(resolution, th_normal, max_height_diff, th_seeds, top_k):
     return json.dumps(result.labels.tolist())
 `);
 
-  setStatus('点群データを準備中...', 88);
+  setStatus('点群データを準備中...', 92);
 
   // Pre-fetch point coordinates (done once)
   const getPointsJson = pyodide.globals.get('_get_points_json');
