@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum, auto
+import numpy as np
+
+from typing import Dict, List, Optional, Tuple
+
+
+# =========================
+# Enums
+# =========================
+
+class CellState(Enum):
+    """
+    State of a grid cell during Travel traversal.
+    """
+    UNKNOWN = auto()
+    GROUND = auto()
+    NON_GROUND = auto()
+    REJECTED = auto()
+
+
+class RejectReason(Enum):
+    """
+    Reason why a cell was rejected during traversal.
+    Used for debugging and visualization.
+    """
+    NONE = auto()
+
+    HEIGHT_DIFF_TOO_LARGE = auto()
+    SLOPE_TOO_STEEP = auto()
+    NO_VALID_NEIGHBOR = auto()
+    INVALID_FEATURE = auto()
+
+    VISITED = auto()
+    OUT_OF_BOUNDS = auto()
+
+
+# =========================
+# Core Data Structures
+# =========================
+
+@dataclass
+class Cell:
+    """
+    Grid cell representation.
+    This object holds *state*, not logic.
+    """
+    index: Tuple[int, int]  # (ix, iy)
+
+    # Feature values (computed in cell_features.py)
+    min_z: Optional[float] = None
+    mean_z: Optional[float] = None
+    max_z: Optional[float] = None
+    height_range: Optional[float] = None
+    slope: Optional[float] = None
+
+    # Travel-related state
+    state: CellState = CellState.UNKNOWN
+    reject_reason: RejectReason = RejectReason.NONE
+
+    # Traversal metadata
+    visited: bool = False
+    iteration: Optional[int] = None
+    parent: Optional[Tuple[int, int]] = None
+
+    # Indices of original points belonging to this cell
+    point_indices: List[int] = field(default_factory=list)
+
+    # TGS: SubCells (0-3)
+    subcells: Dict[int, SubCell] = field(default_factory=dict)
+
+@dataclass
+class SubCell:
+    """
+    Triangular sub-division of a Grid Cell (TGS).
+    """
+    points: np.ndarray            # shape: (N, 3)
+    normal: Optional[np.ndarray] = None     # shape: (3,)
+    mean: Optional[np.ndarray] = None       # shape: (3,)
+    d: Optional[float] = None
+    weight: float = 0.0
+    label: CellState = CellState.UNKNOWN
+    # Indices into the original point cloud (same semantics as Cell.point_indices).
+    # Empty list means the information is unavailable (e.g. manually constructed SubCell).
+    point_indices: List[int] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SubCellIndex:
+    """
+    Unique identifier for a SubCell (TGS).
+    """
+    i: int   # grid row (ix)
+    j: int   # grid col (iy)
+    tri: int # 0..3
+
+
+@dataclass
+class TraversalState:
+    """
+    Global traversal state for one Travel run.
+    Used to track progress and enable debugging.
+    """
+    iteration: int = 0
+
+    # Frontier and visited cells
+    queue: List[Tuple[int, int]] = field(default_factory=list)
+    visited: Dict[Tuple[int, int], Cell] = field(default_factory=dict)
+
+    # Statistics
+    num_ground: int = 0
+    num_rejected: int = 0
+
+    # History (optional, but useful for visualization)
+    iteration_history: Dict[int, List[Tuple[int, int]]] = field(
+        default_factory=dict
+    )

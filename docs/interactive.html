@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>TRAVEL Ground Filter — Interactive Demo</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.27.3/full/pyodide.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      background: #0d0f18;
+      color: #dde2f0;
+      overflow: hidden;
+    }
+
+    /* ── Header ───────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 8px 20px;
+      background: #12152a;
+      border-bottom: 1px solid #252a4a;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 0.95rem; font-weight: 600; color: #fff; }
+    header nav { display: flex; gap: 12px; margin-left: auto; }
+    header a {
+      font-size: 0.8rem; color: #7c8cf8; text-decoration: none;
+      padding: 3px 8px; border-radius: 4px; border: 1px solid #3a3f68;
+    }
+    header a:hover { background: #1e2244; }
+
+    /* ── Main layout ──────────────────────────────────── */
+    #main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Control panel ────────────────────────────────── */
+    #panel {
+      width: 276px;
+      min-width: 276px;
+      background: #12152a;
+      border-right: 1px solid #252a4a;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .section { display: flex; flex-direction: column; gap: 10px; }
+    .section-title {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #7c8cf8;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #1e2244;
+    }
+
+    /* ── Slider rows ──────────────────────────────────── */
+    .param { display: flex; flex-direction: column; gap: 3px; }
+    .param-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .param-name { font-size: 0.8rem; color: #b0b8d8; font-family: monospace; }
+    .param-value {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+      min-width: 3.5em;
+      text-align: right;
+    }
+    .param input[type=range] {
+      width: 100%;
+      height: 4px;
+      accent-color: #7c8cf8;
+      cursor: pointer;
+    }
+    .param-desc { font-size: 0.68rem; color: #5a6080; line-height: 1.4; }
+
+    /* ── Run button ───────────────────────────────────── */
+    #run-btn {
+      background: #5c6ef8;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 9px 0;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: background 0.15s;
+    }
+    #run-btn:hover:not(:disabled) { background: #4a5ce8; }
+    #run-btn:disabled {
+      background: #2a2f50;
+      color: #5a6080;
+      cursor: not-allowed;
+    }
+    #timing {
+      font-size: 0.7rem;
+      color: #5a6080;
+      text-align: center;
+      height: 1em;
+    }
+
+    /* ── Stats ────────────────────────────────────────── */
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.8rem;
+      padding: 4px 0;
+      border-bottom: 1px solid #1a1e38;
+    }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-label { color: #7a84a8; }
+    .stat-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .c-ground    { color: #44d444; }
+    .c-nonground { color: #e84040; }
+    .c-unknown   { color: #888; }
+
+    /* ── Algorithm note ───────────────────────────────── */
+    .algo-note {
+      font-size: 0.7rem;
+      color: #5a6080;
+      line-height: 1.6;
+      padding: 8px;
+      background: #0d0f18;
+      border-radius: 6px;
+      border: 1px solid #1e2244;
+    }
+    .algo-note strong { color: #9aa8d8; }
+
+    /* ── Plot area ────────────────────────────────────── */
+    #plot-container { flex: 1; position: relative; min-width: 0; }
+    #plot { position: absolute; inset: 0; }
+
+    /* ── Loading overlay ──────────────────────────────── */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: #0d0f18;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+    }
+    #overlay.hidden { display: none; }
+    #overlay-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #fff;
+    }
+    #status-text {
+      font-size: 0.85rem;
+      color: #9aa8d8;
+      text-align: center;
+      max-width: 360px;
+    }
+    #progress-bar {
+      width: 320px;
+      height: 4px;
+      background: #252a4a;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #5c6ef8, #8a9cff);
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+    #overlay-note {
+      font-size: 0.75rem;
+      color: #3a4060;
+      text-align: center;
+    }
+
+    /* ── Error banner ─────────────────────────────────── */
+    #error-banner {
+      display: none;
+      background: #3a1010;
+      border: 1px solid #6a2020;
+      color: #ff8080;
+      font-size: 0.82rem;
+      padding: 8px 14px;
+      margin: 8px;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="overlay">
+  <div id="overlay-title">TRAVEL Ground Filter</div>
+  <div id="status-text">Pyodide を初期化中...</div>
+  <div id="progress-bar"><div id="progress-fill"></div></div>
+  <div id="overlay-note">初回ロードは 15〜30 秒かかります（Pyodide + NumPy を取得中）</div>
+</div>
+
+<header>
+  <h1>TRAVEL Ground Filter — Interactive Demo</h1>
+  <nav>
+    <a href="./index.html">静的デモ</a>
+  </nav>
+</header>
+
+<div id="main">
+
+  <!-- ── Control panel ── -->
+  <aside id="panel">
+
+    <div id="error-banner"></div>
+
+    <!-- Grid -->
+    <div class="section">
+      <div class="section-title">グリッド</div>
+      <div class="param">
+        <div class="param-header">
+          <span class="param-name">resolution</span>
+          <span class="param-value" id="v-resolution">5.0</span>
+        </div>
+        <input type="range" id="s-resolution" min="1" max="12" step="0.5" value="5"/>
+        <div class="param-desc">セルサイズ [m]。小さいほど細かく分割されるが処理が重くなる</div>
+      </div>
+    </div>
+
+    <!-- Plane estimator -->
+    <div class="section">
+      <div class="section-title">平面推定 (LPR)</div>
+      <div class="param">
+        <div class="param-header">
+          <span class="param-name">th_seeds</span>
+          <span class="param-value" id="v-th-seeds">0.50</span>
+        </div>
+        <input type="range" id="s-th-seeds" min="0.05" max="1.5" step="0.05" value="0.5"/>
+        <div class="param-desc">地面候補点の高さ帯域幅 [m]。LPR 高さからこの値以内の点を平面推定に使用</div>
+      </div>
+    </div>
+
+    <!-- Traversal -->
+    <div class="section">
+      <div class="section-title">Traversal (LCC)</div>
+      <div class="param">
+        <div class="param-header">
+          <span class="param-name">th_normal</span>
+          <span class="param-value" id="v-th-normal">0.90</span>
+        </div>
+        <input type="range" id="s-th-normal" min="0.5" max="0.99" step="0.01" value="0.90"/>
+        <div class="param-desc">法線の垂直成分下限。高いほど水平面のみ Ground と判定</div>
+      </div>
+      <div class="param">
+        <div class="param-header">
+          <span class="param-name">max_height_diff</span>
+          <span class="param-value" id="v-max-hd">0.50</span>
+        </div>
+        <input type="range" id="s-max-hd" min="0.05" max="2.0" step="0.05" value="0.50"/>
+        <div class="param-desc">LCC 許容高さ差 [m]。大きいほど段差を越えて伝播できる</div>
+      </div>
+    </div>
+
+    <!-- Seed -->
+    <div class="section">
+      <div class="section-title">シード選択</div>
+      <div class="param">
+        <div class="param-header">
+          <span class="param-name">top_k</span>
+          <span class="param-value" id="v-top-k">5</span>
+        </div>
+        <input type="range" id="s-top-k" min="1" max="20" step="1" value="5"/>
+        <div class="param-desc">BFS 開始 SubCell 数。多いほど遠方まで Ground が広がりやすい</div>
+      </div>
+    </div>
+
+    <!-- Run -->
+    <div class="section">
+      <button id="run-btn" disabled>実行</button>
+      <div id="timing"></div>
+    </div>
+
+    <!-- Stats -->
+    <div class="section">
+      <div class="section-title">ラベル統計</div>
+      <div class="stat-row">
+        <span class="stat-label">Ground</span>
+        <span class="stat-value c-ground" id="s-ground">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Non-ground</span>
+        <span class="stat-value c-nonground" id="s-nonground">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Unknown</span>
+        <span class="stat-value c-unknown" id="s-unknown">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Total</span>
+        <span class="stat-value" id="s-total">—</span>
+      </div>
+    </div>
+
+    <!-- Notes -->
+    <div class="section">
+      <div class="section-title">点群について</div>
+      <div class="algo-note">
+        合成データ（<strong>make_sample.py</strong>）:<br>
+        地面 5,000 点 (z ≈ 0 m)<br>
+        障害物 800 点 (z = 0.5〜2.0 m)<br>
+        Pyodide (WebAssembly) 上で Python を実行しています
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── 3D plot ── -->
+  <div id="plot-container">
+    <div id="plot"></div>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+// ================================================================
+//  Slider binding helpers
+// ================================================================
+function bindSlider(sliderId, valueId, format) {
+  const slider = document.getElementById(sliderId);
+  const valueEl = document.getElementById(valueId);
+  slider.addEventListener('input', () => {
+    valueEl.textContent = format(parseFloat(slider.value));
+    scheduleRun();
+  });
+}
+
+const fmt1 = v => v.toFixed(1);
+const fmt2 = v => v.toFixed(2);
+const fmti = v => Math.round(v).toString();
+
+bindSlider('s-resolution', 'v-resolution', fmt1);
+bindSlider('s-th-seeds',   'v-th-seeds',   fmt2);
+bindSlider('s-th-normal',  'v-th-normal',  fmt2);
+bindSlider('s-max-hd',     'v-max-hd',     fmt2);
+bindSlider('s-top-k',      'v-top-k',      fmti);
+
+document.getElementById('run-btn').addEventListener('click', runPipeline);
+
+// ================================================================
+//  Debounce: auto-run 500 ms after last slider move
+// ================================================================
+let debounceTimer = null;
+function scheduleRun() {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(runPipeline, 500);
+}
+
+// ================================================================
+//  State
+// ================================================================
+let pyodide        = null;
+let pyRunFn        = null;   // Python callable: run_with_params(...)
+let pointsData     = null;   // { x, y, z } arrays — loaded once
+let plotInitialised = false;
+
+// ================================================================
+//  Loading overlay helpers
+// ================================================================
+function setStatus(msg, progress) {
+  document.getElementById('status-text').textContent = msg;
+  if (progress !== undefined) {
+    document.getElementById('progress-fill').style.width = progress + '%';
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-banner');
+  el.style.display = 'block';
+  el.textContent = 'エラー: ' + msg;
+  console.error(msg);
+}
+
+// ================================================================
+//  Pyodide initialisation
+// ================================================================
+async function initPyodide() {
+  setStatus('Pyodide をロード中... (初回は 15〜30 秒かかります)', 5);
+
+  pyodide = await loadPyodide();
+
+  setStatus('numpy をロード中...', 25);
+  await pyodide.loadPackage('numpy');
+
+  // Try pyyaml as built-in; fall back to micropip
+  try {
+    await pyodide.loadPackage('pyyaml');
+    setStatus('pyyaml をロード済み', 38);
+  } catch (_) {
+    setStatus('pyyaml を micropip でインストール中...', 38);
+    await pyodide.loadPackage('micropip');
+    await pyodide.runPythonAsync("import micropip; await micropip.install('pyyaml')");
+  }
+
+  // Load travel_py source files into the Pyodide virtual filesystem
+  const modules = [
+    '__init__', 'types', 'config', 'grid', 'cell_features',
+    'plane', 'adjacency', 'graph', 'seed', 'traversal',
+    'labeling', 'pipeline',
+  ];
+
+  pyodide.FS.mkdirTree('/travel_py');
+
+  for (let i = 0; i < modules.length; i++) {
+    const mod = modules[i];
+    setStatus(
+      `travel_py モジュールをロード中... (${i + 1}/${modules.length})`,
+      42 + (i / modules.length) * 30,
+    );
+    const resp = await fetch(`./travel_py/${mod}.py`);
+    if (!resp.ok) throw new Error(`${mod}.py の取得に失敗しました (HTTP ${resp.status})`);
+    const code = await resp.text();
+    pyodide.FS.writeFile(`/travel_py/${mod}.py`, code);
+  }
+
+  setStatus('Python 環境を初期化中...', 74);
+
+  // Bootstrap Python environment
+  pyodide.runPython(`
+import sys
+sys.path.insert(0, '/')
+
+from travel_py.pipeline import run_pipeline
+from travel_py.config import GlobalConfig, GridConfig, SeedConfig, AcceptConfig
+import numpy as np
+import json
+
+# ── Synthetic point cloud (same as tools/make_sample.py) ──────
+np.random.seed(0)
+_xg = np.random.uniform(-30, 30, 5000)
+_yg = np.random.uniform(-30, 30, 5000)
+_zg = np.random.normal(0.0, 0.02, 5000)
+_xo = np.random.uniform(-10, 10, 800)
+_yo = np.random.uniform(-10, 10, 800)
+_zo = np.random.uniform(0.5, 2.0, 800)
+_pts = np.concatenate([
+    np.stack([_xg, _yg, _zg], axis=1),
+    np.stack([_xo, _yo, _zo], axis=1),
+], axis=0)
+
+
+def _get_points_json():
+    """Serialise the fixed point cloud once for Plotly."""
+    return json.dumps({
+        'x': _pts[:, 0].tolist(),
+        'y': _pts[:, 1].tolist(),
+        'z': _pts[:, 2].tolist(),
+    })
+
+
+def run_with_params(resolution, th_normal, max_height_diff, th_seeds, top_k):
+    """Run the TRAVEL pipeline with the given parameters and return labels as JSON."""
+    resolution   = float(resolution)
+    th_normal    = float(th_normal)
+    max_height_diff = float(max_height_diff)
+    th_seeds     = float(th_seeds)
+    top_k        = int(top_k)
+
+    # Auto-fit grid bounds around the point cloud
+    margin = resolution * 2.0
+    min_x  = float(_pts[:, 0].min()) - margin
+    min_y  = float(_pts[:, 1].min()) - margin
+    max_x  = float(_pts[:, 0].max()) + margin
+    max_y  = float(_pts[:, 1].max()) + margin
+    nx     = max(1, int(np.ceil((max_x - min_x) / resolution)))
+    ny     = max(1, int(np.ceil((max_y - min_y) / resolution)))
+
+    cfg = GlobalConfig(
+        grid=GridConfig(
+            resolution=resolution,
+            origin_xy=(min_x, min_y),
+            size_xy=(nx, ny),
+        ),
+        seed=SeedConfig(top_k=top_k),
+        accept=AcceptConfig(
+            th_normal=th_normal,
+            max_height_diff=max_height_diff,
+            th_seeds=th_seeds,
+        ),
+    )
+
+    result = run_pipeline(_pts, cfg)
+    return json.dumps(result.labels.tolist())
+`);
+
+  setStatus('点群データを準備中...', 88);
+
+  // Pre-fetch point coordinates (done once)
+  const getPointsJson = pyodide.globals.get('_get_points_json');
+  pointsData = JSON.parse(getPointsJson());
+
+  pyRunFn = pyodide.globals.get('run_with_params');
+
+  setStatus('完了', 100);
+
+  // Show the app
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('run-btn').disabled = false;
+
+  // Initial run with defaults
+  runPipeline();
+}
+
+// ================================================================
+//  Run pipeline and refresh plot
+// ================================================================
+let running = false;
+
+async function runPipeline() {
+  if (!pyRunFn || running) return;
+  running = true;
+
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.textContent = '実行中...';
+
+  const resolution = parseFloat(document.getElementById('s-resolution').value);
+  const thNormal   = parseFloat(document.getElementById('s-th-normal').value);
+  const maxHd      = parseFloat(document.getElementById('s-max-hd').value);
+  const thSeeds    = parseFloat(document.getElementById('s-th-seeds').value);
+  const topK       = parseInt(document.getElementById('s-top-k').value, 10);
+
+  // Yield to the event loop so the button update renders
+  await new Promise(r => setTimeout(r, 0));
+
+  const t0 = performance.now();
+  let labels;
+  try {
+    const labelsJson = pyRunFn(resolution, thNormal, maxHd, thSeeds, topK);
+    labels = JSON.parse(labelsJson);
+  } catch (err) {
+    showError(err.message);
+    btn.disabled = false;
+    btn.textContent = '実行';
+    running = false;
+    return;
+  }
+  const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+
+  updatePlot(labels);
+  updateStats(labels, elapsed);
+
+  btn.disabled = false;
+  btn.textContent = '実行';
+  running = false;
+}
+
+// ================================================================
+//  Plotly 3D scatter
+// ================================================================
+const GROUPS = [
+  { label: 1,  name: 'Ground',      color: '#44d444' },
+  { label: 0,  name: 'Non-ground',  color: '#e84040' },
+  { label: -1, name: 'Unknown',     color: '#666880' },
+];
+
+const DARK_SCENE = {
+  bgcolor:  '#0d0f18',
+  xaxis: { color: '#3a4060', gridcolor: '#1e2244', zerolinecolor: '#2a2f50' },
+  yaxis: { color: '#3a4060', gridcolor: '#1e2244', zerolinecolor: '#2a2f50' },
+  zaxis: { color: '#3a4060', gridcolor: '#1e2244', zerolinecolor: '#2a2f50' },
+};
+
+const LAYOUT = {
+  margin:       { l: 0, r: 0, b: 0, t: 0 },
+  paper_bgcolor: '#0d0f18',
+  plot_bgcolor:  '#0d0f18',
+  scene:         { ...DARK_SCENE, aspectmode: 'data' },
+  legend: {
+    font:    { color: '#dde2f0', size: 12 },
+    bgcolor: 'rgba(18,21,42,0.85)',
+    bordercolor: '#252a4a',
+    borderwidth: 1,
+  },
+  uirevision: 'keep-camera',  // preserves camera angle between updates
+};
+
+function updatePlot(labels) {
+  const { x, y, z } = pointsData;
+
+  const traces = GROUPS.map(g => {
+    const idx = [];
+    for (let i = 0; i < labels.length; i++) {
+      if (labels[i] === g.label) idx.push(i);
+    }
+    return {
+      type:   'scatter3d',
+      mode:   'markers',
+      name:   g.name,
+      x: idx.map(i => x[i]),
+      y: idx.map(i => y[i]),
+      z: idx.map(i => z[i]),
+      marker: { size: 2, color: g.color, opacity: 0.8 },
+    };
+  });
+
+  if (!plotInitialised) {
+    Plotly.newPlot('plot', traces, LAYOUT, { responsive: true });
+    plotInitialised = true;
+  } else {
+    Plotly.react('plot', traces, LAYOUT);
+  }
+}
+
+// ================================================================
+//  Stats panel
+// ================================================================
+function updateStats(labels, elapsed) {
+  let ground = 0, nonground = 0, unknown = 0;
+  for (const l of labels) {
+    if      (l === 1)  ground++;
+    else if (l === 0)  nonground++;
+    else               unknown++;
+  }
+  document.getElementById('s-ground').textContent    = ground.toLocaleString();
+  document.getElementById('s-nonground').textContent = nonground.toLocaleString();
+  document.getElementById('s-unknown').textContent   = unknown.toLocaleString();
+  document.getElementById('s-total').textContent     = labels.length.toLocaleString();
+  document.getElementById('timing').textContent      = `実行時間: ${elapsed} 秒`;
+}
+
+// ================================================================
+//  Boot
+// ================================================================
+initPyodide().catch(err => {
+  setStatus('初期化に失敗しました: ' + err.message, 0);
+  document.getElementById('overlay-note').textContent =
+    'コンソールを確認してください。ネットワーク接続が必要です。';
+  console.error(err);
+});
+</script>
+</body>
+</html>
