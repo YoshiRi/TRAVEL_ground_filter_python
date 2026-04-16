@@ -88,6 +88,23 @@
     }
     .param-desc { font-size: 0.68rem; color: #5a6080; line-height: 1.4; }
 
+    /* ── Auto-run toggle ─────────────────────────────── */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      color: #9099b0;
+      cursor: pointer;
+      user-select: none;
+    }
+    .toggle-row input[type=checkbox] {
+      accent-color: #5c6ef8;
+      width: 14px;
+      height: 14px;
+      cursor: pointer;
+    }
+
     /* ── Run button ───────────────────────────────────── */
     #run-btn {
       background: #5c6ef8;
@@ -288,6 +305,10 @@
 
     <!-- Run -->
     <div class="section">
+      <label class="toggle-row">
+        <input type="checkbox" id="auto-run" checked/>
+        スライダー操作で即時反映
+      </label>
       <button id="run-btn" disabled>実行</button>
       <div id="timing"></div>
     </div>
@@ -361,10 +382,11 @@ bindSlider('s-top-k',      'v-top-k',      fmti);
 document.getElementById('run-btn').addEventListener('click', runPipeline);
 
 // ================================================================
-//  Debounce: auto-run 500 ms after last slider move
+//  Debounce: auto-run 500 ms after last slider move (if toggle is on)
 // ================================================================
 let debounceTimer = null;
 function scheduleRun() {
+  if (!document.getElementById('auto-run').checked) return;
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(runPipeline, 500);
 }
