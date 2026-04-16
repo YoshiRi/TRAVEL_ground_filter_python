@@ -88,6 +88,23 @@
     }
     .param-desc { font-size: 0.68rem; color: #5a6080; line-height: 1.4; }
 
+    /* ── Auto-run toggle ─────────────────────────────── */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      color: #9099b0;
+      cursor: pointer;
+      user-select: none;
+    }
+    .toggle-row input[type=checkbox] {
+      accent-color: #5c6ef8;
+      width: 14px;
+      height: 14px;
+      cursor: pointer;
+    }
+
     /* ── Run button ───────────────────────────────────── */
     #run-btn {
       background: #5c6ef8;
@@ -288,6 +305,10 @@
 
     <!-- Run -->
     <div class="section">
+      <label class="toggle-row">
+        <input type="checkbox" id="auto-run" checked/>
+        スライダー操作で即時反映
+      </label>
       <button id="run-btn" disabled>実行</button>
       <div id="timing"></div>
     </div>
@@ -317,7 +338,7 @@
     <div class="section">
       <div class="section-title">点群について</div>
       <div class="algo-note">
-        合成データ（<strong>make_sample.py</strong>）:<br>
+        <strong>data/sample.npy</strong> を使用<br>
         地面 5,000 点 (z ≈ 0 m)<br>
         障害物 800 点 (z = 0.5〜2.0 m)<br>
         Pyodide (WebAssembly) 上で Python を実行しています
@@ -361,10 +382,11 @@ bindSlider('s-top-k',      'v-top-k',      fmti);
 document.getElementById('run-btn').addEventListener('click', runPipeline);
 
 // ================================================================
-//  Debounce: auto-run 500 ms after last slider move
+//  Debounce: auto-run 500 ms after last slider move (if toggle is on)
 // ================================================================
 let debounceTimer = null;
 function scheduleRun() {
+  if (!document.getElementById('auto-run').checked) return;
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(runPipeline, 500);
 }
@@ -421,17 +443,25 @@ async function initPyodide() {
   }
   const wheelBytes = new Uint8Array(await wheelResp.arrayBuffer());
 
-  // Write into Pyodide's virtual filesystem, then install via emfs:// URL.
-  // This bypasses micropip's own downloader entirely (avoids the
-  // "attempted to install before downloading" internal error).
-  pyodide.FS.writeFile('/tmp/travel_py.whl', wheelBytes);
+  // Write into Pyodide's virtual filesystem using the FULL wheel filename
+  // (e.g. travel_py-0.1.0-py3-none-any.whl).  micropip's WheelInfo.from_url()
+  // parses the PEP-427 fields (name, version, tags) from the filename, so a
+  // truncated name like "travel_py.whl" causes "wrong number of parts" error.
+  const emfsPath = '/tmp/' + wheelInfo.url;
+  pyodide.FS.writeFile(emfsPath, wheelBytes);
   setStatus(`travel-py をインストール中...`, 75);
   await pyodide.runPythonAsync(`
     import micropip
-    await micropip.install('emfs:///tmp/travel_py.whl', deps=False)
+    await micropip.install('emfs://${emfsPath}', deps=False)
   `);
 
-  setStatus('Python 環境を初期化中...', 85);
+  // Fetch data/sample.npy and write to Pyodide's FS
+  setStatus('点群データをロード中...', 88);
+  const npyResp = await fetch('./data/sample.npy');
+  if (!npyResp.ok) throw new Error(`sample.npy の取得に失敗しました (HTTP ${npyResp.status})`);
+  pyodide.FS.writeFile('/tmp/sample.npy', new Uint8Array(await npyResp.arrayBuffer()));
+
+  setStatus('Python 環境を初期化中...', 92);
 
   // Bootstrap Python environment
   pyodide.runPython(`
@@ -440,18 +470,8 @@ from travel_py.config import GlobalConfig, GridConfig, SeedConfig, AcceptConfig
 import numpy as np
 import json
 
-# ── Synthetic point cloud (same as tools/make_sample.py) ──────
-np.random.seed(0)
-_xg = np.random.uniform(-30, 30, 5000)
-_yg = np.random.uniform(-30, 30, 5000)
-_zg = np.random.normal(0.0, 0.02, 5000)
-_xo = np.random.uniform(-10, 10, 800)
-_yo = np.random.uniform(-10, 10, 800)
-_zo = np.random.uniform(0.5, 2.0, 800)
-_pts = np.concatenate([
-    np.stack([_xg, _yg, _zg], axis=1),
-    np.stack([_xo, _yo, _zo], axis=1),
-], axis=0)
+# ── Load point cloud from data/sample.npy ─────────────────────
+_pts = np.load('/tmp/sample.npy')
 
 
 def _get_points_json():
