@@ -412,18 +412,26 @@ async function initPyodide() {
     return r.json();
   });
 
-  // micropip requires an absolute URL — relative paths are not resolved.
-  const wheelAbsUrl = new URL(wheelInfo.url, window.location.href).href;
+  // Download the wheel with the browser's native fetch() — this handles
+  // relative URLs and localhost correctly, unlike micropip's own HTTP client.
+  setStatus(`travel-py wheel をダウンロード中...`, 60);
+  const wheelResp = await fetch(wheelInfo.url);
+  if (!wheelResp.ok) {
+    throw new Error(`wheel のダウンロードに失敗しました (HTTP ${wheelResp.status})`);
+  }
+  const wheelBytes = new Uint8Array(await wheelResp.arrayBuffer());
 
-  // Install the travel-py wheel; skip dependency resolution since
-  // open3d / rerun-sdk are not available in Pyodide.
-  setStatus(`travel-py (${wheelInfo.url}) をインストール中...`, 65);
+  // Write into Pyodide's virtual filesystem, then install via emfs:// URL.
+  // This bypasses micropip's own downloader entirely (avoids the
+  // "attempted to install before downloading" internal error).
+  pyodide.FS.writeFile('/tmp/travel_py.whl', wheelBytes);
+  setStatus(`travel-py をインストール中...`, 75);
   await pyodide.runPythonAsync(`
     import micropip
-    await micropip.install('${wheelAbsUrl}', deps=False)
+    await micropip.install('emfs:///tmp/travel_py.whl', deps=False)
   `);
 
-  setStatus('Python 環境を初期化中...', 80);
+  setStatus('Python 環境を初期化中...', 85);
 
   // Bootstrap Python environment
   pyodide.runPython(`
