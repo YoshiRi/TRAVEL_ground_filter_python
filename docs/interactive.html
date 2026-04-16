@@ -412,12 +412,15 @@ async function initPyodide() {
     return r.json();
   });
 
+  // micropip requires an absolute URL — relative paths are not resolved.
+  const wheelAbsUrl = new URL(wheelInfo.url, window.location.href).href;
+
   // Install the travel-py wheel; skip dependency resolution since
   // open3d / rerun-sdk are not available in Pyodide.
   setStatus(`travel-py (${wheelInfo.url}) をインストール中...`, 65);
   await pyodide.runPythonAsync(`
     import micropip
-    await micropip.install('./${wheelInfo.url}', deps=False)
+    await micropip.install('${wheelAbsUrl}', deps=False)
   `);
 
   setStatus('Python 環境を初期化中...', 80);
