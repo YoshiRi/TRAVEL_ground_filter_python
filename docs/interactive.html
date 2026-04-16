@@ -317,7 +317,7 @@
     <div class="section">
       <div class="section-title">点群について</div>
       <div class="algo-note">
-        合成データ（<strong>make_sample.py</strong>）:<br>
+        <strong>data/sample.npy</strong> を使用<br>
         地面 5,000 点 (z ≈ 0 m)<br>
         障害物 800 点 (z = 0.5〜2.0 m)<br>
         Pyodide (WebAssembly) 上で Python を実行しています
@@ -433,7 +433,13 @@ async function initPyodide() {
     await micropip.install('emfs://${emfsPath}', deps=False)
   `);
 
-  setStatus('Python 環境を初期化中...', 85);
+  // Fetch data/sample.npy and write to Pyodide's FS
+  setStatus('点群データをロード中...', 88);
+  const npyResp = await fetch('./data/sample.npy');
+  if (!npyResp.ok) throw new Error(`sample.npy の取得に失敗しました (HTTP ${npyResp.status})`);
+  pyodide.FS.writeFile('/tmp/sample.npy', new Uint8Array(await npyResp.arrayBuffer()));
+
+  setStatus('Python 環境を初期化中...', 92);
 
   // Bootstrap Python environment
   pyodide.runPython(`
@@ -442,18 +448,8 @@ from travel_py.config import GlobalConfig, GridConfig, SeedConfig, AcceptConfig
 import numpy as np
 import json
 
-# ── Synthetic point cloud (same as tools/make_sample.py) ──────
-np.random.seed(0)
-_xg = np.random.uniform(-30, 30, 5000)
-_yg = np.random.uniform(-30, 30, 5000)
-_zg = np.random.normal(0.0, 0.02, 5000)
-_xo = np.random.uniform(-10, 10, 800)
-_yo = np.random.uniform(-10, 10, 800)
-_zo = np.random.uniform(0.5, 2.0, 800)
-_pts = np.concatenate([
-    np.stack([_xg, _yg, _zg], axis=1),
-    np.stack([_xo, _yo, _zo], axis=1),
-], axis=0)
+# ── Load point cloud from data/sample.npy ─────────────────────
+_pts = np.load('/tmp/sample.npy')
 
 
 def _get_points_json():
