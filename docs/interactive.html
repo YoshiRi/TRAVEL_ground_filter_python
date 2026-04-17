@@ -303,6 +303,23 @@
       </div>
     </div>
 
+    <!-- Visualization layers -->
+    <div class="section">
+      <div class="section-title">表示レイヤー</div>
+      <label class="toggle-row">
+        <input type="checkbox" id="show-points" checked/>
+        点群（ラベル別）
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="show-grid" checked/>
+        セル状態グリッド
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="show-normals"/>
+        法線ベクトル（平面推定）
+      </label>
+    </div>
+
     <!-- Run -->
     <div class="section">
       <label class="toggle-row">
@@ -394,9 +411,10 @@ function scheduleRun() {
 // ================================================================
 //  State
 // ================================================================
-let pyodide        = null;
-let pyRunFn        = null;   // Python callable: run_with_params(...)
-let pointsData     = null;   // { x, y, z } arrays — loaded once
+let pyodide         = null;
+let pyRunFn         = null;    // Python callable: run_with_params(...)
+let pointsData      = null;    // { x, y, z } arrays — loaded once
+let currentVizData  = null;    // last pipeline result (labels + grid + planes)
 let plotInitialised = false;
 
 // ================================================================
@@ -470,6 +488,7 @@ async function initPyodide() {
   // Bootstrap Python environment
   pyodide.runPython(`
 from travel_py.pipeline import run_pipeline
+from travel_py.viz_data import extract_viz_data
 from travel_py.config import GlobalConfig, GridConfig, SeedConfig, AcceptConfig
 import numpy as np
 import json
@@ -519,7 +538,13 @@ def run_with_params(resolution, th_normal, max_height_diff, th_seeds, top_k):
     )
 
     result = run_pipeline(_pts, cfg)
-    return json.dumps(result.labels.tolist())
+    viz    = extract_viz_data(result)
+    return json.dumps({
+        'labels':     result.labels.tolist(),
+        'grid':       viz['grid'],
+        'planes':     viz['planes'],
+        'resolution': float(resolution),
+    })
 `);
 
   setStatus('点群データを準備中...', 92);
@@ -563,10 +588,9 @@ async function runPipeline() {
   await new Promise(r => setTimeout(r, 0));
 
   const t0 = performance.now();
-  let labels;
+  let data;
   try {
-    const labelsJson = pyRunFn(resolution, thNormal, maxHd, thSeeds, topK);
-    labels = JSON.parse(labelsJson);
+    data = JSON.parse(pyRunFn(resolution, thNormal, maxHd, thSeeds, topK));
   } catch (err) {
     showError(err.message);
     btn.disabled = false;
@@ -576,8 +600,9 @@ async function runPipeline() {
   }
   const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
 
-  updatePlot(labels);
-  updateStats(labels, elapsed);
+  currentVizData = data;
+  renderPlot();
+  updateStats(data.labels, elapsed);
 
   btn.disabled = false;
   btn.textContent = '実行';
@@ -585,53 +610,131 @@ async function runPipeline() {
 }
 
 // ================================================================
-//  Plotly 3D scatter
+//  Plotly helpers
 // ================================================================
-const GROUPS = [
-  { label: 1,  name: 'Ground',      color: '#44d444' },
-  { label: 0,  name: 'Non-ground',  color: '#e84040' },
-  { label: -1, name: 'Unknown',     color: '#666880' },
-];
-
 const DARK_SCENE = {
   bgcolor:  '#0d0f18',
   xaxis: { color: '#3a4060', gridcolor: '#1e2244', zerolinecolor: '#2a2f50' },
   yaxis: { color: '#3a4060', gridcolor: '#1e2244', zerolinecolor: '#2a2f50' },
   zaxis: { color: '#3a4060', gridcolor: '#1e2244', zerolinecolor: '#2a2f50' },
 };
-
 const LAYOUT = {
-  margin:       { l: 0, r: 0, b: 0, t: 0 },
+  margin: { l: 0, r: 0, b: 0, t: 0 },
   paper_bgcolor: '#0d0f18',
   plot_bgcolor:  '#0d0f18',
-  scene:         { ...DARK_SCENE, aspectmode: 'data' },
+  scene: { ...DARK_SCENE, aspectmode: 'data' },
   legend: {
-    font:    { color: '#dde2f0', size: 12 },
+    font: { color: '#dde2f0', size: 11 },
     bgcolor: 'rgba(18,21,42,0.85)',
-    bordercolor: '#252a4a',
-    borderwidth: 1,
+    bordercolor: '#252a4a', borderwidth: 1,
+    tracegroupgap: 4,
   },
-  uirevision: 'keep-camera',  // preserves camera angle between updates
+  uirevision: 'keep-camera',
 };
 
-function updatePlot(labels) {
-  const { x, y, z } = pointsData;
+// ── Layer: point cloud ──────────────────────────────────────────
+const PT_GROUPS = [
+  { label:  1, name: 'Ground',     color: '#44d444' },
+  { label:  0, name: 'Non-ground', color: '#e84040' },
+  { label: -1, name: 'Unknown',    color: '#666880' },
+];
 
-  const traces = GROUPS.map(g => {
+function buildPointTraces(labels) {
+  const { x, y, z } = pointsData;
+  return PT_GROUPS.map(g => {
     const idx = [];
-    for (let i = 0; i < labels.length; i++) {
-      if (labels[i] === g.label) idx.push(i);
-    }
+    for (let i = 0; i < labels.length; i++) if (labels[i] === g.label) idx.push(i);
     return {
-      type:   'scatter3d',
-      mode:   'markers',
-      name:   g.name,
-      x: idx.map(i => x[i]),
-      y: idx.map(i => y[i]),
-      z: idx.map(i => z[i]),
-      marker: { size: 2, color: g.color, opacity: 0.8 },
+      type: 'scatter3d', mode: 'markers', name: g.name,
+      legendgroup: 'points',
+      x: idx.map(i => x[i]), y: idx.map(i => y[i]), z: idx.map(i => z[i]),
+      marker: { size: 2, color: g.color, opacity: 0.7 },
     };
   });
+}
+
+// ── Layer: cell state grid ──────────────────────────────────────
+const CELL_STATE = {
+  G: { name: 'Cell: Ground',     color: '#44d444' },
+  N: { name: 'Cell: Non-ground', color: '#e84040' },
+  U: { name: 'Cell: Unknown',    color: '#8888aa' },
+  R: { name: 'Cell: Rejected',   color: '#ff8800' },
+};
+
+function buildGridTraces(grid) {
+  const byState = {};
+  for (let i = 0; i < grid.state.length; i++) {
+    const s = grid.state[i];
+    if (!byState[s]) byState[s] = { cx: [], cy: [], cz: [] };
+    byState[s].cx.push(grid.cx[i]);
+    byState[s].cy.push(grid.cy[i]);
+    byState[s].cz.push(grid.cz[i]);
+  }
+  return Object.entries(byState).map(([s, d]) => ({
+    type: 'scatter3d', mode: 'markers',
+    name: CELL_STATE[s]?.name ?? `Cell: ${s}`,
+    legendgroup: 'grid',
+    x: d.cx, y: d.cy, z: d.cz,
+    marker: {
+      size: 6,
+      color: CELL_STATE[s]?.color ?? '#888',
+      opacity: 0.5,
+      symbol: 'square',
+    },
+  }));
+}
+
+// ── Layer: plane normals (cone) ─────────────────────────────────
+const NORMAL_COLOR = { G: '#44ff88', N: '#ff6644', U: '#8888aa' };
+
+function buildNormalTraces(planes, resolution) {
+  const byLabel = {};
+  const labelName = { G: 'Normal: Ground', N: 'Normal: Non-ground', U: 'Normal: Unknown' };
+
+  for (let i = 0; i < planes.x.length; i++) {
+    const l = planes.label[i];
+    if (!byLabel[l]) byLabel[l] = { x:[], y:[], z:[], u:[], v:[], w:[] };
+    byLabel[l].x.push(planes.x[i]);
+    byLabel[l].y.push(planes.y[i]);
+    byLabel[l].z.push(planes.z[i]);
+    byLabel[l].u.push(planes.nx[i]);
+    byLabel[l].v.push(planes.ny[i]);
+    byLabel[l].w.push(planes.nz[i]);
+  }
+
+  return Object.entries(byLabel).map(([l, d]) => ({
+    type: 'cone',
+    name: labelName[l] ?? `Normal: ${l}`,
+    legendgroup: 'normals',
+    x: d.x, y: d.y, z: d.z,
+    u: d.u, v: d.v, w: d.w,
+    colorscale: [[0, NORMAL_COLOR[l] ?? '#888'], [1, NORMAL_COLOR[l] ?? '#888']],
+    cmin: 0, cmax: 1,
+    showscale: false,
+    sizemode: 'absolute',
+    sizeref: resolution * 0.5,
+    anchor: 'tail',
+    opacity: 0.85,
+  }));
+}
+
+// ── Layer toggle listeners ──────────────────────────────────────
+['show-points', 'show-grid', 'show-normals'].forEach(id => {
+  document.getElementById(id).addEventListener('change', renderPlot);
+});
+
+// ── Main render ─────────────────────────────────────────────────
+function renderPlot() {
+  if (!currentVizData) return;
+  const { labels, grid, planes, resolution } = currentVizData;
+  const traces = [];
+
+  if (document.getElementById('show-points').checked)
+    traces.push(...buildPointTraces(labels));
+  if (document.getElementById('show-grid').checked)
+    traces.push(...buildGridTraces(grid));
+  if (document.getElementById('show-normals').checked)
+    traces.push(...buildNormalTraces(planes, resolution));
 
   if (!plotInitialised) {
     Plotly.newPlot('plot', traces, LAYOUT, { responsive: true });
