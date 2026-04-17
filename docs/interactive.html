@@ -312,11 +312,11 @@
       </label>
       <label class="toggle-row">
         <input type="checkbox" id="show-grid" checked/>
-        セル状態グリッド
+        セル状態（2D フットプリント）
       </label>
       <label class="toggle-row">
-        <input type="checkbox" id="show-normals"/>
-        法線ベクトル（平面推定）
+        <input type="checkbox" id="show-planes"/>
+        推定平面パッチ（Ground）
       </label>
     </div>
 
@@ -662,19 +662,22 @@ const CELL_STATE = {
 };
 
 function buildGridTraces(grid) {
+  let minZ = Infinity;
+  for (const z of grid.cz) if (z < minZ) minZ = z;
+  const flatZ = isFinite(minZ) ? minZ - 1.0 : -1.0;
+
   const byState = {};
   for (let i = 0; i < grid.state.length; i++) {
     const s = grid.state[i];
-    if (!byState[s]) byState[s] = { cx: [], cy: [], cz: [] };
+    if (!byState[s]) byState[s] = { cx: [], cy: [] };
     byState[s].cx.push(grid.cx[i]);
     byState[s].cy.push(grid.cy[i]);
-    byState[s].cz.push(grid.cz[i]);
   }
   return Object.entries(byState).map(([s, d]) => ({
     type: 'scatter3d', mode: 'markers',
     name: CELL_STATE[s]?.name ?? `Cell: ${s}`,
     legendgroup: 'grid',
-    x: d.cx, y: d.cy, z: d.cz,
+    x: d.cx, y: d.cy, z: Array(d.cx.length).fill(flatZ),
     marker: {
       size: 6,
       color: CELL_STATE[s]?.color ?? '#888',
@@ -684,42 +687,59 @@ function buildGridTraces(grid) {
   }));
 }
 
-// ── Layer: plane normals (cone) ─────────────────────────────────
-const NORMAL_COLOR = { G: '#44ff88', N: '#ff6644', U: '#8888aa' };
+// ── Helper: two orthogonal vectors in the plane with given normal ──
+function orthoBasis(nx, ny, nz) {
+  let ux, uy, uz;
+  if (Math.abs(nx) < 0.9) { ux = 1; uy = 0; uz = 0; }
+  else                     { ux = 0; uy = 1; uz = 0; }
+  const dot = ux*nx + uy*ny + uz*nz;
+  ux -= dot*nx; uy -= dot*ny; uz -= dot*nz;
+  const ulen = Math.sqrt(ux*ux + uy*uy + uz*uz);
+  ux /= ulen; uy /= ulen; uz /= ulen;
+  return {
+    ux, uy, uz,
+    vx: ny*uz - nz*uy,
+    vy: nz*ux - nx*uz,
+    vz: nx*uy - ny*ux,
+  };
+}
 
-function buildNormalTraces(planes, resolution) {
-  const byLabel = {};
-  const labelName = { G: 'Normal: Ground', N: 'Normal: Non-ground', U: 'Normal: Unknown' };
+// ── Layer: plane patches (mesh3d, Ground only) ──────────────────
+function buildPlaneTraces(planes, resolution) {
+  const half = resolution * 0.45;
+  const allX = [], allY = [], allZ = [];
+  const allI = [], allJ = [], allK = [];
 
   for (let i = 0; i < planes.x.length; i++) {
-    const l = planes.label[i];
-    if (!byLabel[l]) byLabel[l] = { x:[], y:[], z:[], u:[], v:[], w:[] };
-    byLabel[l].x.push(planes.x[i]);
-    byLabel[l].y.push(planes.y[i]);
-    byLabel[l].z.push(planes.z[i]);
-    byLabel[l].u.push(planes.nx[i]);
-    byLabel[l].v.push(planes.ny[i]);
-    byLabel[l].w.push(planes.nz[i]);
+    if (planes.label[i] !== 'G') continue;
+    const { ux, uy, uz, vx, vy, vz } = orthoBasis(planes.nx[i], planes.ny[i], planes.nz[i]);
+    const cx = planes.x[i], cy = planes.y[i], cz = planes.z[i];
+    const base = allX.length;
+    allX.push(cx + half*(ux+vx), cx + half*(ux-vx), cx + half*(-ux-vx), cx + half*(-ux+vx));
+    allY.push(cy + half*(uy+vy), cy + half*(uy-vy), cy + half*(-uy-vy), cy + half*(-uy+vy));
+    allZ.push(cz + half*(uz+vz), cz + half*(uz-vz), cz + half*(-uz-vz), cz + half*(-uz+vz));
+    allI.push(base, base);
+    allJ.push(base+1, base+2);
+    allK.push(base+2, base+3);
   }
 
-  return Object.entries(byLabel).map(([l, d]) => ({
-    type: 'cone',
-    name: labelName[l] ?? `Normal: ${l}`,
-    legendgroup: 'normals',
-    x: d.x, y: d.y, z: d.z,
-    u: d.u, v: d.v, w: d.w,
-    colorscale: [[0, NORMAL_COLOR[l] ?? '#888'], [1, NORMAL_COLOR[l] ?? '#888']],
-    cmin: 0, cmax: 1,
-    showscale: false,
-    sizemode: 'absolute',
-    sizeref: resolution * 0.5,
-    anchor: 'tail',
-    opacity: 0.85,
-  }));
+  if (allX.length === 0) return [];
+  return [{
+    type: 'mesh3d',
+    name: 'Plane: Ground',
+    legendgroup: 'planes',
+    x: allX, y: allY, z: allZ,
+    i: allI, j: allJ, k: allK,
+    color: '#44d444',
+    opacity: 0.35,
+    flatshading: true,
+    lighting: { ambient: 0.9, diffuse: 0.5 },
+    showlegend: true,
+  }];
 }
 
 // ── Layer toggle listeners ──────────────────────────────────────
-['show-points', 'show-grid', 'show-normals'].forEach(id => {
+['show-points', 'show-grid', 'show-planes'].forEach(id => {
   document.getElementById(id).addEventListener('change', renderPlot);
 });
 
@@ -733,8 +753,8 @@ function renderPlot() {
     traces.push(...buildPointTraces(labels));
   if (document.getElementById('show-grid').checked)
     traces.push(...buildGridTraces(grid));
-  if (document.getElementById('show-normals').checked)
-    traces.push(...buildNormalTraces(planes, resolution));
+  if (document.getElementById('show-planes').checked)
+    traces.push(...buildPlaneTraces(planes, resolution));
 
   if (!plotInitialised) {
     Plotly.newPlot('plot', traces, LAYOUT, { responsive: true });
