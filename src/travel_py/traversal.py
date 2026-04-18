@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import Callable, Deque, Dict, Iterable, Optional, Tuple
+from typing import Callable, Deque, Dict, Iterable, Optional, Set, Tuple
 
 from .adjacency import iter_existing_neighbors
 from .types import Cell, CellState, RejectReason, TraversalState
@@ -120,10 +120,11 @@ def run_subcell_traversal(
     graph: "TraversabilityGraph",
     start_nodes: Iterable[SubCellIndex],
     accept_fn: Callable[[SubCellIndex, SubCellIndex], bool],
+    initial_visited: Optional[Set[SubCellIndex]] = None,
 ) -> Tuple[Set[SubCellIndex], int]:
     """
     Run BFS on SubCell graph.
-    
+
     Parameters
     ----------
     graph:
@@ -132,31 +133,27 @@ def run_subcell_traversal(
         Initial SubCellIndices to start BFS from.
     accept_fn:
         Function (src_idx, dst_idx) -> bool.
-        MUST decide whether traversal is allowed.
-        Contract:
-          - Must handle existence checks (return False if cell/subcell missing).
-          - Must check plane validity (normals, etc.).
-          - Must perform geometric checks (LCC, etc.).
-          - Traversal logic relies SOLELY on this function for acceptance.
-    
+    initial_visited:
+        Optional set of already-visited SubCellIndices from a previous
+        BFS call. These nodes are skipped during this traversal.
+        The returned visited set includes these initial nodes.
+
     Returns
     -------
     visited:
-        Set of reachable SubCellIndices.
-        NOTE: This represents structural reachability in the graph.
-        Semantic labeling (e.g. setting CellState.GROUND) should be done
-        by the caller based on this set, not inside the traversal.
+        Set of reachable SubCellIndices (includes initial_visited).
     rejected_count:
         Number of rejected edges (where accept_fn returned False).
     max_depth:
         Maximum BFS depth reached.
     """
     queue: Deque[Tuple[SubCellIndex, int]] = deque()
-    visited: Set[SubCellIndex] = set()
-    
+    visited: Set[SubCellIndex] = set(initial_visited) if initial_visited else set()
+
     for s in start_nodes:
-        queue.append((s, 0))
-        visited.add(s)
+        if s not in visited:
+            queue.append((s, 0))
+            visited.add(s)
         
     rejected_count = 0
     max_depth = 0

@@ -37,6 +37,7 @@ class SeedConfig:
     use_height_range: bool = False
     use_mean_height: bool = True
     top_k: int = 5
+    prefer_center: bool = False  # score by weight / (1 + dist_to_origin) to favour near-sensor seeds
 
 
 # =========================

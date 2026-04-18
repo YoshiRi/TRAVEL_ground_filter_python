@@ -113,22 +113,64 @@ class SeedSelector:
 # =========================
 # TGS SubCell Seed Selection
 # =========================
+from typing import Optional, Set
 from .grid import Grid
 from .types import SubCellIndex, CellState
 
-def find_dominant_subcells(grid: Grid, top_k: int = 1) -> List[SubCellIndex]:
+
+def find_dominant_subcells(
+    grid: Grid,
+    top_k: int = 1,
+    already_visited: Optional[Set[SubCellIndex]] = None,
+    prefer_center: bool = False,
+) -> List[SubCellIndex]:
     """
     Find seed subcells: GROUND label with highest planarity weight.
 
-    Returns up to *top_k* SubCellIndex objects, sorted by weight descending.
+    Parameters
+    ----------
+    grid:
+        Grid to search for seed subcells.
+    top_k:
+        Maximum number of seeds to return.
+    already_visited:
+        SubCellIndices already covered by previous BFS iterations.
+        Candidates in this set are skipped so each seed explores new area.
+    prefer_center:
+        When True, score = weight / (1 + dist_to_origin_xy), where
+        dist is the cell-centre distance from (0, 0) in the world frame.
+        This prioritises subcells near the sensor / base-link origin.
+
+    Returns
+    -------
+    List of up to *top_k* SubCellIndex objects, sorted by score descending.
     """
+    spec = grid.spec
     candidates: list[tuple[float, SubCellIndex]] = []
 
     for cell in grid.iter_cells():
         for t, sub in cell.subcells.items():
             if sub.label != CellState.GROUND:
                 continue
-            candidates.append((sub.weight, SubCellIndex(cell.index[0], cell.index[1], t)))
+
+            score = sub.weight
+
+            if prefer_center:
+                cx = spec.origin_xy[0] + (cell.index[0] + 0.5) * spec.resolution
+                cy = spec.origin_xy[1] + (cell.index[1] + 0.5) * spec.resolution
+                dist = math.sqrt(cx * cx + cy * cy)
+                score = score / (1.0 + dist)
+
+            candidates.append((score, SubCellIndex(cell.index[0], cell.index[1], t)))
 
     candidates.sort(key=lambda x: x[0], reverse=True)
-    return [idx for _, idx in candidates[:top_k]]
+
+    result: List[SubCellIndex] = []
+    for _, idx in candidates:
+        if already_visited and idx in already_visited:
+            continue
+        result.append(idx)
+        if len(result) >= top_k:
+            break
+
+    return result

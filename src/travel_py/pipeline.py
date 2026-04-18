@@ -56,7 +56,7 @@ def run_pipeline(points: np.ndarray, global_cfg) -> PipelineResult:
             step1_labels[(cell.index[0], cell.index[1], t)] = sub.label
 
     graph = TraversabilityGraph(grid)
-    start_nodes = find_dominant_subcells(grid, top_k=global_cfg.seed.top_k)
+    seed_cfg = global_cfg.seed
 
     rejection_map: dict[tuple, str] = {}
 
@@ -109,11 +109,28 @@ def run_pipeline(points: np.ndarray, global_cfg) -> PipelineResult:
             rejection_map[(dst_idx.i, dst_idx.j, dst_idx.tri)] = reason
         return ok
 
-    visited, _, _ = run_subcell_traversal(
-        graph=graph,
-        start_nodes=start_nodes,
-        accept_fn=accept_lcc,
-    )
+    # Iterative seeding: pick one seed at a time, skip already-covered subcells.
+    # Each BFS builds on the visited set from previous iterations so seeds that
+    # are reachable from an earlier seed are never wasted.
+    start_nodes: list = []
+    visited: set = set()
+
+    for _ in range(seed_cfg.top_k):
+        seeds = find_dominant_subcells(
+            grid,
+            top_k=1,
+            already_visited=visited,
+            prefer_center=seed_cfg.prefer_center,
+        )
+        if not seeds:
+            break
+        start_nodes.append(seeds[0])
+        visited, _, _ = run_subcell_traversal(
+            graph=graph,
+            start_nodes=[seeds[0]],
+            accept_fn=accept_lcc,
+            initial_visited=visited,
+        )
 
     for idx in visited:
         cell = grid.cells.get((idx.i, idx.j))
