@@ -301,6 +301,10 @@
         <input type="range" id="s-top-k" min="1" max="20" step="1" value="5"/>
         <div class="param-desc">BFS 開始 SubCell 数。多いほど遠方まで Ground が広がりやすい</div>
       </div>
+      <label class="toggle-row">
+        <input type="checkbox" id="prefer-center"/>
+        中心優先シード（weight / (1 + dist)）
+      </label>
     </div>
 
     <!-- Visualization layers -->
@@ -397,6 +401,7 @@ bindSlider('s-max-hd',     'v-max-hd',     fmt2);
 bindSlider('s-top-k',      'v-top-k',      fmti);
 
 document.getElementById('run-btn').addEventListener('click', runPipeline);
+document.getElementById('prefer-center').addEventListener('change', scheduleRun);
 
 // ================================================================
 //  Debounce: auto-run 500 ms after last slider move (if toggle is on)
@@ -506,13 +511,14 @@ def _get_points_json():
     })
 
 
-def run_with_params(resolution, th_normal, max_height_diff, th_seeds, top_k):
+def run_with_params(resolution, th_normal, max_height_diff, th_seeds, top_k, prefer_center):
     """Run the TRAVEL pipeline with the given parameters and return labels as JSON."""
     resolution   = float(resolution)
     th_normal    = float(th_normal)
     max_height_diff = float(max_height_diff)
     th_seeds     = float(th_seeds)
     top_k        = int(top_k)
+    prefer_center = bool(prefer_center)
 
     # Auto-fit grid bounds around the point cloud
     margin = resolution * 2.0
@@ -529,7 +535,7 @@ def run_with_params(resolution, th_normal, max_height_diff, th_seeds, top_k):
             origin_xy=(min_x, min_y),
             size_xy=(nx, ny),
         ),
-        seed=SeedConfig(top_k=top_k),
+        seed=SeedConfig(top_k=top_k, prefer_center=prefer_center),
         accept=AcceptConfig(
             th_normal=th_normal,
             max_height_diff=max_height_diff,
@@ -578,11 +584,12 @@ async function runPipeline() {
   btn.disabled = true;
   btn.textContent = '実行中...';
 
-  const resolution = parseFloat(document.getElementById('s-resolution').value);
-  const thNormal   = parseFloat(document.getElementById('s-th-normal').value);
-  const maxHd      = parseFloat(document.getElementById('s-max-hd').value);
-  const thSeeds    = parseFloat(document.getElementById('s-th-seeds').value);
-  const topK       = parseInt(document.getElementById('s-top-k').value, 10);
+  const resolution   = parseFloat(document.getElementById('s-resolution').value);
+  const thNormal     = parseFloat(document.getElementById('s-th-normal').value);
+  const maxHd        = parseFloat(document.getElementById('s-max-hd').value);
+  const thSeeds      = parseFloat(document.getElementById('s-th-seeds').value);
+  const topK         = parseInt(document.getElementById('s-top-k').value, 10);
+  const preferCenter = document.getElementById('prefer-center').checked;
 
   // Yield to the event loop so the button update renders
   await new Promise(r => setTimeout(r, 0));
@@ -590,7 +597,7 @@ async function runPipeline() {
   const t0 = performance.now();
   let data;
   try {
-    data = JSON.parse(pyRunFn(resolution, thNormal, maxHd, thSeeds, topK));
+    data = JSON.parse(pyRunFn(resolution, thNormal, maxHd, thSeeds, topK, preferCenter));
   } catch (err) {
     showError(err.message);
     btn.disabled = false;
