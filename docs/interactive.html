@@ -131,6 +131,23 @@
       height: 1em;
     }
 
+    /* ── Upload button ───────────────────────────────── */
+    #upload-btn {
+      background: #1e2244;
+      color: #9aa8d8;
+      border: 1px solid #3a3f68;
+      border-radius: 6px;
+      padding: 7px 0;
+      font-size: 0.8rem;
+      cursor: pointer;
+      width: 100%;
+      transition: background 0.15s;
+    }
+    #upload-btn:hover:not(:disabled) { background: #2a3060; }
+    #upload-btn:disabled { color: #5a6080; cursor: not-allowed; }
+    .upload-status { font-size: 0.7rem; color: #5a8060; min-height: 1em; }
+    .data-src { font-size: 0.72rem; color: #7a84a8; word-break: break-all; }
+
     /* ── Stats ────────────────────────────────────────── */
     .stat-row {
       display: flex;
@@ -242,6 +259,15 @@
   <aside id="panel">
 
     <div id="error-banner"></div>
+
+    <!-- File upload -->
+    <div class="section">
+      <div class="section-title">点群データ</div>
+      <div class="data-src" id="data-source">sample.npy（デフォルト）</div>
+      <input type="file" id="file-upload" accept=".pcd,.npy" style="display:none"/>
+      <button id="upload-btn" disabled>.pcd / .npy をアップロード</button>
+      <div class="upload-status" id="upload-status"></div>
+    </div>
 
     <!-- Grid -->
     <div class="section">
@@ -418,7 +444,10 @@ function scheduleRun() {
 // ================================================================
 let pyodide         = null;
 let pyRunFn         = null;    // Python callable: run_with_params(...)
-let pointsData      = null;    // { x, y, z } arrays — loaded once
+let getPointsFn     = null;    // Python callable: _get_points_json()
+let pySetNpy        = null;    // Python callable: set_uploaded_points(path)
+let pySetRaw        = null;    // Python callable: set_uploaded_points_raw(path)
+let pointsData      = null;    // { x, y, z } arrays — refreshed after upload
 let currentVizData  = null;    // last pipeline result (labels + grid + planes)
 let plotInitialised = false;
 
@@ -498,34 +527,48 @@ from travel_py.config import GlobalConfig, GridConfig, SeedConfig, AcceptConfig
 import numpy as np
 import json
 
-# ── Load point cloud from data/sample.npy ─────────────────────
+# ── Default point cloud ───────────────────────────────────────
 _pts = np.load('/tmp/sample.npy')
+_current_pts = _pts   # replaced when user uploads a file
 
 
 def _get_points_json():
-    """Serialise the fixed point cloud once for Plotly."""
     return json.dumps({
-        'x': _pts[:, 0].tolist(),
-        'y': _pts[:, 1].tolist(),
-        'z': _pts[:, 2].tolist(),
+        'x': _current_pts[:, 0].tolist(),
+        'y': _current_pts[:, 1].tolist(),
+        'z': _current_pts[:, 2].tolist(),
     })
 
 
-def run_with_params(resolution, th_normal, max_height_diff, th_seeds, top_k, prefer_center):
-    """Run the TRAVEL pipeline with the given parameters and return labels as JSON."""
-    resolution   = float(resolution)
-    th_normal    = float(th_normal)
-    max_height_diff = float(max_height_diff)
-    th_seeds     = float(th_seeds)
-    top_k        = int(top_k)
-    prefer_center = bool(prefer_center)
+def set_uploaded_points(npy_path: str):
+    global _current_pts
+    arr = np.load(npy_path)
+    if arr.ndim != 2 or arr.shape[1] < 3:
+        raise ValueError(f'Expected shape (N,>=3), got {arr.shape}')
+    _current_pts = arr[:, :3].astype(np.float32)
+    return json.dumps({'count': int(len(_current_pts))})
 
-    # Auto-fit grid bounds around the point cloud
+
+def set_uploaded_points_raw(bin_path: str):
+    """Load raw float32 binary (x,y,z interleaved) — used for PCD uploads."""
+    global _current_pts
+    _current_pts = np.fromfile(bin_path, dtype=np.float32).reshape(-1, 3)
+    return json.dumps({'count': int(len(_current_pts))})
+
+
+def run_with_params(resolution, th_normal, max_height_diff, th_seeds, top_k, prefer_center):
+    resolution      = float(resolution)
+    th_normal       = float(th_normal)
+    max_height_diff = float(max_height_diff)
+    th_seeds        = float(th_seeds)
+    top_k           = int(top_k)
+    prefer_center   = bool(prefer_center)
+
     margin = resolution * 2.0
-    min_x  = float(_pts[:, 0].min()) - margin
-    min_y  = float(_pts[:, 1].min()) - margin
-    max_x  = float(_pts[:, 0].max()) + margin
-    max_y  = float(_pts[:, 1].max()) + margin
+    min_x  = float(_current_pts[:, 0].min()) - margin
+    min_y  = float(_current_pts[:, 1].min()) - margin
+    max_x  = float(_current_pts[:, 0].max()) + margin
+    max_y  = float(_current_pts[:, 1].max()) + margin
     nx     = max(1, int(np.ceil((max_x - min_x) / resolution)))
     ny     = max(1, int(np.ceil((max_y - min_y) / resolution)))
 
@@ -543,7 +586,7 @@ def run_with_params(resolution, th_normal, max_height_diff, th_seeds, top_k, pre
         ),
     )
 
-    result = run_pipeline(_pts, cfg)
+    result = run_pipeline(_current_pts, cfg)
     viz    = extract_viz_data(result)
     return json.dumps({
         'labels':     result.labels.tolist(),
@@ -555,11 +598,13 @@ def run_with_params(resolution, th_normal, max_height_diff, th_seeds, top_k, pre
 
   setStatus('点群データを準備中...', 92);
 
-  // Pre-fetch point coordinates (done once)
-  const getPointsJson = pyodide.globals.get('_get_points_json');
-  pointsData = JSON.parse(getPointsJson());
+  getPointsFn = pyodide.globals.get('_get_points_json');
+  pyRunFn     = pyodide.globals.get('run_with_params');
+  pySetNpy    = pyodide.globals.get('set_uploaded_points');
+  pySetRaw    = pyodide.globals.get('set_uploaded_points_raw');
 
-  pyRunFn = pyodide.globals.get('run_with_params');
+  pointsData = JSON.parse(getPointsFn());
+  document.getElementById('upload-btn').disabled = false;
 
   setStatus('完了', 100);
 
@@ -615,6 +660,130 @@ async function runPipeline() {
   btn.textContent = '実行';
   running = false;
 }
+
+// ================================================================
+//  PCD file parser (ASCII and binary, float32/float64)
+// ================================================================
+function parsePCD(buffer) {
+  const u8 = new Uint8Array(buffer);
+  // Parse header line by line until DATA
+  const lines = [];
+  let pos = 0, headerEnd = 0;
+  while (pos < u8.length) {
+    let end = u8.indexOf(10, pos);
+    if (end === -1) end = u8.length;
+    const line = new TextDecoder().decode(u8.slice(pos, end)).replace(/\r$/, '');
+    lines.push(line);
+    pos = end + 1;
+    if (line.startsWith('DATA')) { headerEnd = pos; break; }
+  }
+
+  const hdr = {};
+  for (const line of lines) {
+    if (line.startsWith('#')) continue;
+    const parts = line.split(/\s+/);
+    hdr[parts[0].toUpperCase()] = parts.slice(1);
+  }
+
+  const fields  = hdr['FIELDS'] || [];
+  const types   = hdr['TYPE']   || [];
+  const sizes   = (hdr['SIZE']  || []).map(Number);
+  const counts  = (hdr['COUNT'] || []).map(n => parseInt(n, 10));
+  const npts    = parseInt(hdr['POINTS']?.[0] ?? '0', 10);
+  const fmt     = (hdr['DATA']?.[0] ?? 'ascii').toLowerCase();
+
+  const xi = fields.indexOf('x'), yi = fields.indexOf('y'), zi = fields.indexOf('z');
+  if (xi < 0 || yi < 0 || zi < 0) throw new Error('PCD: x/y/z フィールドが見つかりません');
+
+  const ox = new Float32Array(npts);
+  const oy = new Float32Array(npts);
+  const oz = new Float32Array(npts);
+
+  if (fmt === 'ascii') {
+    const rows = new TextDecoder().decode(u8.slice(headerEnd)).trim().split('\n');
+    for (let i = 0; i < Math.min(rows.length, npts); i++) {
+      const v = rows[i].trim().split(/\s+/);
+      ox[i] = parseFloat(v[xi]);
+      oy[i] = parseFloat(v[yi]);
+      oz[i] = parseFloat(v[zi]);
+    }
+  } else if (fmt === 'binary') {
+    let stride = 0;
+    const offsets = sizes.map((sz, f) => { const o = stride; stride += sz * (counts[f] || 1); return o; });
+    const view = new DataView(buffer, headerEnd);
+    const read = (off, t, sz) => {
+      if (t === 'F' && sz === 4) return view.getFloat32(off, true);
+      if (t === 'F' && sz === 8) return view.getFloat64(off, true);
+      if (t === 'I' && sz === 4) return view.getInt32(off,   true);
+      if (t === 'U' && sz === 4) return view.getUint32(off,  true);
+      return 0;
+    };
+    for (let i = 0; i < npts; i++) {
+      const base = i * stride;
+      ox[i] = read(base + offsets[xi], types[xi], sizes[xi]);
+      oy[i] = read(base + offsets[yi], types[yi], sizes[yi]);
+      oz[i] = read(base + offsets[zi], types[zi], sizes[zi]);
+    }
+  } else {
+    throw new Error(`PCD data="${fmt}" 未対応 (ascii / binary のみ)`);
+  }
+
+  return { x: ox, y: oy, z: oz, count: npts };
+}
+
+// ================================================================
+//  File upload handler
+// ================================================================
+document.getElementById('upload-btn').addEventListener('click', () => {
+  document.getElementById('file-upload').click();
+});
+
+document.getElementById('file-upload').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = '';   // allow re-selecting same file
+
+  const btn = document.getElementById('upload-btn');
+  const statusEl = document.getElementById('upload-status');
+  btn.disabled = true;
+  btn.textContent = '読み込み中...';
+  statusEl.textContent = '';
+
+  try {
+    const buf = await file.arrayBuffer();
+    const ext = file.name.split('.').pop().toLowerCase();
+    let count;
+
+    if (ext === 'npy') {
+      pyodide.FS.writeFile('/tmp/upload.npy', new Uint8Array(buf));
+      ({ count } = JSON.parse(pySetNpy('/tmp/upload.npy')));
+    } else if (ext === 'pcd') {
+      const pcd = parsePCD(buf);
+      const raw = new Float32Array(pcd.count * 3);
+      for (let i = 0; i < pcd.count; i++) {
+        raw[i*3] = pcd.x[i]; raw[i*3+1] = pcd.y[i]; raw[i*3+2] = pcd.z[i];
+      }
+      pyodide.FS.writeFile('/tmp/upload.bin', new Uint8Array(raw.buffer));
+      ({ count } = JSON.parse(pySetRaw('/tmp/upload.bin')));
+    } else {
+      throw new Error('.pcd または .npy のみ対応しています');
+    }
+
+    // Refresh cached point coordinates and re-run
+    pointsData = JSON.parse(getPointsFn());
+    plotInitialised = false;
+    document.getElementById('data-source').textContent = `${file.name}（${count.toLocaleString()} 点）`;
+    statusEl.textContent = `✓ ${count.toLocaleString()} 点を読み込みました`;
+    runPipeline();
+  } catch (err) {
+    statusEl.style.color = '#e84040';
+    statusEl.textContent = 'エラー: ' + err.message;
+    showError('ファイル読み込み失敗: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '.pcd / .npy をアップロード';
+  }
+});
 
 // ================================================================
 //  Plotly helpers
