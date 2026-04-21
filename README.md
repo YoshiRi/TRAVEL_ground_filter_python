@@ -1,42 +1,45 @@
-
-
 # travel_py
 
-Python-based reference implementation of the **Travel ground segmentation algorithm**.
+Travel地面分割アルゴリズムの **Pythonリファレンス実装** です。
 
-This repository provides an **experimental, debuggable, and visualization-friendly**
-implementation intended for:
+このリポジトリは、以下を目的とした **実験・デバッグ・可視化向け** 実装を提供します。
 
-- Algorithm understanding
-- Parameter sensitivity analysis
-- Failure case investigation
-- Rapid prototyping before C++ / Rust implementations
+- アルゴリズム理解
+- パラメータ感度分析
+- 失敗ケース調査
+- C++ / Rust移植前の高速プロトタイピング
 
-⚠️ This is **not production code**. Performance and real-time constraints are out of scope.
-
----
-
-## Motivation
-
-Existing Travel implementations are often written in C++ and optimized for runtime,
-which makes:
-
-- Step-by-step debugging
-- Intermediate state visualization
-- Algorithmic trial-and-error
-
-relatively difficult.
-
-This project prioritizes **clarity, inspectability, and modifiability** over speed.
+⚠️ 本実装は **本番運用向けではありません**。性能最適化・リアルタイム性は対象外です。
 
 ---
 
-## Algorithm Pipeline
+## デザイン / デモ（GitHub Pages）
 
-The implementation strictly preserves the canonical Travel pipeline:
+ブラウザで確認できるインタラクティブデモを公開しています。
 
-```
+- **Demo URL:** https://yoshiri.github.io/TRAVEL_ground_filter_python/interactive.html
 
+> README上で示すデモURLは上記を正とします。
+
+---
+
+## 背景
+
+既存のTravel実装はC++中心で実行性能に最適化されていることが多く、次の作業が難しい場合があります。
+
+- ステップ単位のデバッグ
+- 中間状態の可視化
+- アルゴリズム試行錯誤
+
+このプロジェクトでは、速度よりも **可読性・観測性・改造容易性** を優先しています。
+
+---
+
+## アルゴリズムパイプライン
+
+実装はTravelの標準的な流れを段階的に保っています。
+
+```text
 PointCloud Input
 ↓
 Grid Builder
@@ -50,38 +53,33 @@ Traversal (Ground Propagation)
 Point Labeling
 ↓
 Debug / Visualization
-
 ```
 
-Each stage is isolated in its own module to keep responsibilities explicit.
+各ステージをモジュール分割し、責務を明確化しています。
 
 ---
 
-## Project Structure
+## プロジェクト構成
 
-```
-
+```text
 travel_py/
 ├── src/travel_py/
-│   ├── main.py          # Pipeline orchestration
-│   ├── config.py        # Parameters and thresholds
-│   ├── grid.py          # PointCloud → Grid mapping
-│   ├── cell_features.py# Cell-level feature computation
-│   ├── adjacency.py    # Neighbor relationships
-│   ├── traversal.py    # Ground propagation logic (core)
-│   ├── labeling.py     # Cell → point label propagation
-│   ├── debug_viz.py    # Visualization & debugging utilities
-│   └── types.py        # Enums and dataclasses
+│   ├── main.py           # パイプライン実行エントリ
+│   ├── config.py         # パラメータ・閾値
+│   ├── grid.py           # PointCloud → Gridマッピング
+│   ├── cell_features.py  # セル特徴量計算
+│   ├── adjacency.py      # 隣接関係構築
+│   ├── traversal.py      # 地面伝播ロジック（中核）
+│   ├── labeling.py       # セル→点ラベル反映
+│   ├── debug_viz.py      # 可視化・デバッグ補助
+│   └── types.py          # Enum / dataclass
 ├── pyproject.toml
 └── README.md
-
-````
+```
 
 ---
 
-## Environment Setup (uv)
-
-This project uses **uv** for fast and reproducible environment management.
+## セットアップ（uv）
 
 ```bash
 uv python install 3.11
@@ -89,9 +87,9 @@ uv python pin 3.11
 uv venv
 source .venv/bin/activate
 uv sync
-````
+```
 
-Editable install for development:
+開発用Editableインストール:
 
 ```bash
 uv pip install -e .
@@ -99,53 +97,48 @@ uv pip install -e .
 
 ---
 
-## Running
+## 実行方法
 
 ```bash
 python -m travel_py.main --points /path/to/points.npy
 ```
 
-Configuration parameters are defined in `config.py` and `configs/default.yaml`.
+設定値は `config.py` と `configs/default.yaml` で管理しています。
 
 ---
 
-## Design Principles
+## 設計方針
 
-* Preserve Travel's stage-wise structure
-* Separate algorithm logic from visualization
-* Favor pure functions and simple data structures
-* One file = one responsibility
-* Easy to read, easy to break, easy to rebuild
-
----
-
-## Non-goals (by design)
-
-* ROS integration
-* Real-time performance
-* Parallelization
-* Abstract base class hierarchies
-* Plugin architectures
-
-These may be added **after** the algorithm stabilizes.
+- Travelの段階的構造を維持する
+- アルゴリズム本体と可視化を分離する
+- 純関数と単純なデータ構造を優先する
+- 1ファイル1責務を徹底する
+- 読みやすく、壊しやすく、作り直しやすくする
 
 ---
 
-## Intended Workflow
+## 非目標（意図的に未対応）
 
-1. Implement and modify logic in Python
-2. Visualize intermediate states (grid, traversal, rejection reasons)
-3. Identify stable logic and parameters
-4. Port validated logic to C++ / Rust if needed
+- ROS統合
+- リアルタイム性能
+- 並列化
+- 抽象基底クラス中心の設計
+- プラグインアーキテクチャ
+
+アルゴリズムが安定してから必要に応じて追加します。
 
 ---
 
-## License
+## 想定ワークフロー
 
-MIT License (or specify your preferred license).
+1. Pythonでロジックを実装・調整
+2. 中間状態（グリッド、伝播、除外理由）を可視化
+3. ロジックとパラメータを安定化
+4. 必要に応じてC++ / Rustへ移植
 
+---
 
-## Testing
+## テスト
 
 ```bash
 # venv
@@ -158,18 +151,20 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest
 ```
 
 ```bash
-# run test with random point
+# ランダム点群で試験実行
 python tools/make_sample.py
 uv run python -m travel_py.main --points sample.npy --viz
 ```
 
-## GitHub Pages でのデモ公開
+---
 
-`src/travel_py/main.py` は Python 実行環境が必要なため、そのまま GitHub Pages（静的ホスティング）で直接は動きません。  
-代わりに、このリポジトリでは **既存のパイプラインを再利用して静的JSONを出力し、ブラウザで描画する方式** を追加しました。
+## GitHub Pages向けデータ生成
+
+`src/travel_py/main.py` はPython実行環境が必要なため、GitHub Pages（静的ホスティング）ではそのまま動作しません。  
+このリポジトリでは、既存パイプラインの結果を静的JSONとして出力し、ブラウザ側で描画する方式を採用しています。
 
 ```bash
-# 1) パイプラインを実行して GitHub Pages 用データを出力
+# 1) GitHub Pages用データを生成
 uv run python tools/export_github_pages.py --points data/sample.npy
 
 # 2) ローカル確認（例: Python標準HTTPサーバ）
@@ -178,32 +173,32 @@ python -m http.server 8000
 ```
 
 生成物:
-- `docs/data/demo_payload.json`: Ground / Non-ground の推論結果付き点群
-- `docs/index.html`: Plotly ベースの静的3Dビューア
+- `docs/data/demo_payload.json`: Ground / Non-ground推論結果付き点群
+- `docs/index.html`: Plotlyベース静的3Dビューア
 
-### GitHub Actions で自動デプロイする場合の最小手順
+### GitHub Actionsで自動デプロイする最小手順
 
-1. `tools/export_github_pages.py` を CI で実行して `docs/data/demo_payload.json` を更新
-2. `docs/` を Pages 公開対象ブランチにデプロイ
+1. CIで `tools/export_github_pages.py` を実行し `docs/data/demo_payload.json` を更新
+2. `docs/` をPages公開対象ブランチへデプロイ
 
-この方式なら、`tools/rerun_debug.py` と同じ `travel_py.pipeline.run_pipeline` を使うため、
-ローカルのRerun可視化と GitHub Pages 向け可視化で同じ推論結果を共有できます。
+`tools/rerun_debug.py` と同じ `travel_py.pipeline.run_pipeline` を使うため、
+ローカル可視化とGitHub Pages可視化で同一推論結果を共有できます。
 
-### merge 後にどこで見るか
+### 公開後の確認先
 
-GitHub Pages を有効化済みなら、merge 後は次の URL で見られます。
-
-- ユーザー/組織ページ: `https://<user-or-org>.github.io/`
-- プロジェクトページ: `https://<user-or-org>.github.io/<repo-name>/`
-
-このリポジトリ構成では `docs/index.html` を公開しているため、通常は以下のどちらかです。
+GitHub Pages有効化後、通常は以下で確認できます。
 
 - `https://<user-or-org>.github.io/<repo-name>/`
 - `https://<user-or-org>.github.io/<repo-name>/index.html`
 
-もし 404 になる場合は、リポジトリの **Settings > Pages** で公開ソースを確認してください。
+本リポジトリの公開デモURL:
 
-- Branch deploy の場合: `Branch = main` / `Folder = /docs`
-- Actions deploy の場合: workflow が `docs/` を成果物として deploy していること
+- **https://yoshiri.github.io/TRAVEL_ground_filter_python/interactive.html**
 
-公開完了まで 1〜数分かかることがあります。反映後、`docs/data/demo_payload.json` を読み込んで 3D 表示されます。
+404の場合は **Settings > Pages** の公開ソース設定（`main` / `/docs` など）を確認してください。
+
+---
+
+## ライセンス
+
+MIT License（または任意ライセンスを指定）。
