@@ -863,40 +863,47 @@ function buildGridTraces(grid) {
   }));
 }
 
-// ── Helper: two orthogonal vectors in the plane with given normal ──
-function orthoBasis(nx, ny, nz) {
-  let ux, uy, uz;
-  if (Math.abs(nx) < 0.9) { ux = 1; uy = 0; uz = 0; }
-  else                     { ux = 0; uy = 1; uz = 0; }
-  const dot = ux*nx + uy*ny + uz*nz;
-  ux -= dot*nx; uy -= dot*ny; uz -= dot*nz;
-  const ulen = Math.sqrt(ux*ux + uy*uy + uz*uz);
-  ux /= ulen; uy /= ulen; uz /= ulen;
-  return {
-    ux, uy, uz,
-    vx: ny*uz - nz*uy,
-    vy: nz*ux - nx*uz,
-    vz: nx*uy - ny*ux,
-  };
-}
-
 // ── Layer: plane patches (mesh3d, Ground only) ──────────────────
+// Each SubCell is one of 4 triangular sectors of a square cell.
+// The sector boundaries lie exactly at the cell corners (arctan2 ±45°).
+// Corner offsets from cell centre, in units of resolution/2:
+//   tri=0 East:  centre, (+1,−1), (+1,+1)
+//   tri=1 North: centre, (+1,+1), (−1,+1)
+//   tri=2 West:  centre, (−1,+1), (−1,−1)
+//   tri=3 South: centre, (−1,−1), (+1,−1)
+const TRI_CORNERS = [
+  [[ 0, 0], [ 1,-1], [ 1, 1]],
+  [[ 0, 0], [ 1, 1], [-1, 1]],
+  [[ 0, 0], [-1, 1], [-1,-1]],
+  [[ 0, 0], [-1,-1], [ 1,-1]],
+];
+
 function buildPlaneTraces(planes, resolution) {
-  const half = resolution * 0.45;
+  const half = resolution / 2;
   const allX = [], allY = [], allZ = [];
   const allI = [], allJ = [], allK = [];
 
   for (let i = 0; i < planes.x.length; i++) {
     if (planes.label[i] !== 'G') continue;
-    const { ux, uy, uz, vx, vy, vz } = orthoBasis(planes.nx[i], planes.ny[i], planes.nz[i]);
-    const cx = planes.x[i], cy = planes.y[i], cz = planes.z[i];
+    const nz = planes.nz[i];
+    if (Math.abs(nz) < 0.01) continue;   // avoid division by near-zero
+
+    const ccx = planes.cell_cx[i], ccy = planes.cell_cy[i];
+    const mx = planes.x[i], my = planes.y[i], mz = planes.z[i];
+    const nx = planes.nx[i], ny = planes.ny[i];
+    const corners = TRI_CORNERS[planes.tri[i]];
     const base = allX.length;
-    allX.push(cx + half*(ux+vx), cx + half*(ux-vx), cx + half*(-ux-vx), cx + half*(-ux+vx));
-    allY.push(cy + half*(uy+vy), cy + half*(uy-vy), cy + half*(-uy-vy), cy + half*(-uy+vy));
-    allZ.push(cz + half*(uz+vz), cz + half*(uz-vz), cz + half*(-uz-vz), cz + half*(-uz+vz));
-    allI.push(base, base);
-    allJ.push(base+1, base+2);
-    allK.push(base+2, base+3);
+
+    for (const [dx, dy] of corners) {
+      const vx = ccx + dx * half;
+      const vy = ccy + dy * half;
+      // Project vertex onto plane: nz*(vz-mz) = -nx*(vx-mx) - ny*(vy-my)
+      const vz = mz - (nx * (vx - mx) + ny * (vy - my)) / nz;
+      allX.push(vx); allY.push(vy); allZ.push(vz);
+    }
+    allI.push(base);
+    allJ.push(base + 1);
+    allK.push(base + 2);
   }
 
   if (allX.length === 0) return [];

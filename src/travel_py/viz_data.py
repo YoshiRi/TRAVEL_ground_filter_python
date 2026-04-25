@@ -17,10 +17,12 @@ def extract_viz_data(result: PipelineResult) -> dict:
         cx, cy, cz (cell center x/y, min_z), state ('G'/'N'/'U'/'R')
 
     ``planes`` – one entry per *subcell* that has a fitted plane:
-        x, y, z   : subcell mean position
-        nx, ny, nz: unit normal vector
-        weight    : planarity confidence
-        label     : 'G' / 'N' / 'U'
+        x, y, z         : subcell mean position
+        nx, ny, nz      : unit normal vector
+        weight          : planarity confidence
+        label           : 'G' / 'N' / 'U'
+        cell_cx, cell_cy: cell centre XY (world frame)
+        tri             : sector index 0-3 (TGS triangular subdivision)
     """
     grid = result.grid
     spec = result.grid_spec
@@ -44,9 +46,12 @@ def extract_viz_data(result: PipelineResult) -> dict:
     px, py, pz = [], [], []
     pnx, pny, pnz = [], [], []
     pw, pl = [], []
+    p_cell_cx, p_cell_cy, p_tri = [], [], []
 
     for cell in grid.iter_cells():
-        for sub in cell.subcells.values():
+        cx_cell = ox + (cell.index[0] + 0.5) * res
+        cy_cell = oy + (cell.index[1] + 0.5) * res
+        for tri_id, sub in cell.subcells.items():
             if sub.mean is None or sub.normal is None:
                 continue
             px.append(round(float(sub.mean[0]), 4))
@@ -57,6 +62,9 @@ def extract_viz_data(result: PipelineResult) -> dict:
             pnz.append(round(float(sub.normal[2]), 4))
             pw.append(round(float(sub.weight), 4))
             pl.append(sub.label.name[0])           # G / N / U
+            p_cell_cx.append(round(float(cx_cell), 4))
+            p_cell_cy.append(round(float(cy_cell), 4))
+            p_tri.append(tri_id)
 
     return {
         "grid": {
@@ -67,5 +75,6 @@ def extract_viz_data(result: PipelineResult) -> dict:
             "x": px, "y": py, "z": pz,
             "nx": pnx, "ny": pny, "nz": pnz,
             "weight": pw, "label": pl,
+            "cell_cx": p_cell_cx, "cell_cy": p_cell_cy, "tri": p_tri,
         },
     }
