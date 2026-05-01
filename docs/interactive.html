@@ -981,10 +981,12 @@ function buildSmoothGroundTraces(planes, resolution) {
     legendgroup: 'smooth',
     x: ax, y: ay, z: az,
     i: ti, j: tj, k: tk,
-    color: '#44d4aa',
-    opacity: 0.55,
+    intensity: az,
+    colorscale: 'Viridis',
+    showscale: false,
+    opacity: 0.75,
     flatshading: false,
-    lighting: { ambient: 0.7, diffuse: 0.8, specular: 0.2, roughness: 0.6 },
+    lighting: { ambient: 0.6, diffuse: 0.9, specular: 0.3, roughness: 0.5 },
     showlegend: true,
   }];
 }
