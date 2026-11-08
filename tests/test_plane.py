@@ -442,6 +442,44 @@ class TestIsTraversableLcc:
         captured = capsys.readouterr()
         assert captured.out == ""
 
+    # --- Adaptive LCC tests (TRAVEL official tgs.hpp) ---
+
+    def test_adaptive_lcc_identical_planes(self):
+        p = _make_plane()
+        ok, reason = is_traversable_lcc(p, p, adaptive=True)
+        assert ok
+        assert reason == "NONE"
+
+    def test_adaptive_lcc_scales_with_distance(self):
+        """
+        At d = 5.0m, max_dist = 5.0 * sin(0.2) ≈ 0.993m.
+        A height step of 0.6m should be ACCEPTED in adaptive mode (0.6 <= 0.993),
+        whereas in fixed mode (th_dist=0.5m) it would be rejected.
+        """
+        src = _make_plane(mean=(0, 0, 0))
+        dst = _make_plane(mean=(5, 0, 0.6))
+        # Fixed mode rejects (0.6 > 0.5)
+        ok_fixed, reason_fixed = is_traversable_lcc(src, dst, th_dist=0.5, adaptive=False)
+        assert not ok_fixed
+        assert reason_fixed == "DIST_TOO_LARGE"
+
+        # Adaptive mode accepts (0.6 <= 5.0 * sin(0.2) ≈ 0.993)
+        ok_adap, reason_adap = is_traversable_lcc(src, dst, adaptive=True, th_lcc_planar_dist=0.2)
+        assert ok_adap
+        assert reason_adap == "NONE"
+
+    def test_adaptive_lcc_rejects_large_step_at_short_distance(self):
+        """
+        At short distance d = 1.0m, max_dist = 1.0 * sin(0.2) ≈ 0.198m.
+        A height step of 0.3m should be REJECTED.
+        """
+        src = _make_plane(mean=(0, 0, 0))
+        dst = _make_plane(mean=(1, 0, 0.3))
+        ok, reason = is_traversable_lcc(src, dst, adaptive=True, th_lcc_planar_dist=0.2)
+        assert not ok
+        assert reason == "DIST_TOO_LARGE"
+
+
 
 # ===========================================================================
 # Integration: estimate on realistic mixed data

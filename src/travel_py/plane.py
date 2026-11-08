@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -167,8 +168,12 @@ class LocalPlaneEstimator:
 def is_traversable_lcc(
     src: PlaneModel,
     dst: PlaneModel,
-    th_normal: float,
-    th_dist: float,
+    th_normal: float = 0.9,
+    th_dist: float = 0.5,
+    *,
+    adaptive: bool = False,
+    th_lcc_normal_similarity: float = 0.03,
+    th_lcc_planar_dist: float = 0.2,
     verbose: bool = False,
 ) -> Tuple[bool, str]:
     """
@@ -178,23 +183,42 @@ def is_traversable_lcc(
       1. Their normals are nearly aligned (similar surface orientation).
       2. Neither plane is far above or below the other (small height step).
 
+    When ``adaptive=True``, uses the distance-dependent thresholds from the
+    official TRAVEL algorithm (tgs.hpp L816-834):
+      - diff_norm = ||dst.mean - src.mean||
+      - similarity threshold = 1 - sin(diff_norm * th_lcc_normal_similarity)
+      - max height step = diff_norm * sin(th_lcc_planar_dist)
+    This allows traversability to naturally scale with cell distance, supporting
+    arbitrary fine-grained grid resolutions.
+
     Returns: (is_traversable, rejection_reason)
     """
+    delta = dst.mean - src.mean
+    diff_norm = float(np.linalg.norm(delta))
+    sim = float(np.dot(src.normal, dst.normal))
+
     # 1. Normal similarity
-    sim = np.dot(src.normal, dst.normal)
-    if sim < th_normal:
-        if verbose:
-            print(f"  [LCC Reject] Normal similarity {sim:.3f} < {th_normal}")
-        return False, "SIMILARITY_TOO_LOW"
+    if adaptive:
+        th_sim = 1.0 - math.sin(diff_norm * th_lcc_normal_similarity)
+        if sim < th_sim:
+            if verbose:
+                print(f"  [LCC Reject] Adaptive normal similarity {sim:.3f} < {th_sim:.3f} (d={diff_norm:.2f})")
+            return False, "SIMILARITY_TOO_LOW"
+        max_dist = diff_norm * math.sin(th_lcc_planar_dist)
+    else:
+        if sim < th_normal:
+            if verbose:
+                print(f"  [LCC Reject] Normal similarity {sim:.3f} < {th_normal}")
+            return False, "SIMILARITY_TOO_LOW"
+        max_dist = th_dist
 
     # 2. Plane distance: project the inter-mean vector onto each plane's normal.
-    delta    = dst.mean - src.mean
-    dist_src = np.dot(src.normal, delta)
-    dist_dst = np.dot(dst.normal, -delta)
+    dist_src = float(np.dot(src.normal, delta))
+    dist_dst = float(np.dot(dst.normal, -delta))
 
-    if abs(dist_src) > th_dist or abs(dist_dst) > th_dist:
+    if abs(dist_src) > max_dist or abs(dist_dst) > max_dist:
         if verbose:
-            print(f"  [LCC Reject] Dist src={abs(dist_src):.3f}, dst={abs(dist_dst):.3f} > {th_dist}")
+            print(f"  [LCC Reject] Dist src={abs(dist_src):.3f}, dst={abs(dist_dst):.3f} > {max_dist:.3f}")
         return False, "DIST_TOO_LARGE"
 
     return True, "NONE"

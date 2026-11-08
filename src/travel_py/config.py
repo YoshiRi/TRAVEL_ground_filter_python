@@ -53,6 +53,9 @@ class AcceptConfig:
     th_normal: float = 0.9             # minimum normal[2] for both planes and LCC similarity
     max_slope: Optional[float] = None  # reserved; currently unused
     th_seeds: float = 0.5              # height band above LPR for ground candidate selection
+    use_adaptive_lcc: bool = False     # Use TRAVEL official adaptive LCC thresholds based on inter-mean distance
+    th_lcc_normal_similarity: float = 0.03  # angular coefficient for normal similarity: 1 - sin(d * theta)
+    th_lcc_planar_dist: float = 0.2         # angular coefficient for plane distance: d * sin(theta)
 
 
 # =========================
