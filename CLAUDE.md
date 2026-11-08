@@ -16,12 +16,28 @@ uv pip install -e .
 
 # 実行
 uv run python tools/make_sample.py          # サンプルデータ生成
-uv run python -m travel_py.main --points sample.npy           # パイプライン実行
-uv run python -m travel_py.main --points sample.npy --viz     # 可視化あり
+uv run python -m travel_py.main --points sample.npy               # 高速ベクトル化パイプライン実行 (デフォルト)
+uv run python -m travel_py.main --points sample.npy --reference   # 参照実装 (オブジェクトベース) 実行
+uv run python -m travel_py.main --points sample.npy --viz         # 可視化あり
 
 # テスト
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest
 ```
+
+---
+
+## 直近の作業（2026-11 高速化対応 `perf/vectorize`）
+
+1. **ベクトル化パイプラインの実装 (`src/travel_py/fast.py`, `pipeline.py`)**
+   - 点群を `(sid, z)` でソートしたフラット配列（SoA: Structure of Arrays）により、点ごと・SubCellごとのPythonループを排除
+   - LPRおよび共分散計算を `np.bincount` とバッチ `np.linalg.eigh` でベクトル化
+   - BFSトラバーサルもフラットインデックスで高速実行
+   - 処理時間を 121ms → 61ms（解像度5m）、557ms → 67ms（解像度1m）、1049ms → 83ms（解像度0.5m）へ高速化（2.4〜12.6倍高速化）
+
+2. **既存オブジェクト構造との互換性・等価性の担保**
+   - `grid.py`: `Grid.from_points` を内部ベクトル化しつつ、従来の `Cell` / `SubCell` オブジェクト生成を維持
+   - `main.py`: デフォルトで高速化パスを実行し、`--reference` で従来のオブジェクトベースパイプラインに切り替え可能。可視化時（`--viz`）のみ `to_grid()` でデバッグ表示オブジェクトを復元
+   - `tests/test_fast_equivalence.py`: 参照実装と高速化実装が合成点群・実点群データ（sample.npy）において点ラベル単位で1点も狂わず完全一致することを検証（全テストパス）
 
 ---
 
@@ -38,43 +54,12 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest
 
 ---
 
-## 直近の作業（2026-03-20 完了）
-
-1. **`main.py`** — パイプラインを完成させた
-2. **`config.py`** — Python 3.11 対応
-3. **`seed.py`** — グリッドセンター距離フィルタ削除
-
----
-
-## 残りのTODO（優先度順）
-
-### 高優先度
-
-#### 1. テストの追加
-以下のモジュールにテストがない：
-- `src/travel_py/plane.py`（特に `is_traversable_lcc()` の境界値テスト）
-- `src/travel_py/traversal.py`
-- `src/travel_py/seed.py`
-- `src/travel_py/graph.py`
-
-### 中優先度
-
-#### 2. 空間分散シード選択（`seed.py`）
-- **現状**: weight降順top_kのため、高weightなSubCellが空間的に集中していると全シードが一箇所に固まる
-- **目標**: 角度セクタ分割など空間的に分散したシード選択
-- **議論メモ**: ロボティクス用途では近傍Groundが最重要で遠方シードは計算対効果が低い。Optionとして追加する程度が適切
-
-#### 3. SubCell への点インデックス保持（精度向上）
-- **現状**: `SubCell.points` は座標コピーのみ（元インデックスなし）
-- SubCell ごとに元インデックスを持てば、より細粒度のラベル伝播が可能
-- **ファイル**: `src/travel_py/types.py`, `src/travel_py/grid.py`, `src/travel_py/labeling.py`
-
----
-
 ## アーキテクチャ概要
 
 ```
-main.py          パイプライン統括
+main.py          パイプライン統括 (--reference で従来実装、デフォルトは fast)
+pipeline.py      run_fast / run_reference を提供する統合インターフェース
+fast.py          SoA (FlatGrid) による完全ベクトル化パイプライン
 config.py        設定（dataclass + YAML）
 types.py         Cell, SubCell, SubCellIndex, CellState
 grid.py          点群 → グリッド変換、SubCell分割
@@ -85,17 +70,4 @@ seed.py          シード選択
 traversal.py     BFS（SubCellベース）
 labeling.py      Cell.state → 点ラベル伝播
 debug_viz.py     Matplotlib 可視化
-```
-
-## パイプライン実行フロー
-
-```
-[1] Grid.from_points()             → Cell + SubCell 構築
-[2] compute_all_cell_features()    → Cell の高さ統計
-[3] LocalPlaneEstimator            → SubCell ごとに法線・重み・GROUND/NON_GROUND判定
-[4] TraversabilityGraph()          → SubCell 隣接グラフ
-[5] find_dominant_subcells()       → BFS 開始ノード選択
-[6] run_subcell_traversal()        → LCC基準でBFS、到達SubCellをGROUNDに
-[7] SubCell.label → Cell.state     → 伝播
-[8] label_points_from_cells()      → 点ごとのラベル(1/0/-1)
 ```

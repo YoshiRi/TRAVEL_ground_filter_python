@@ -2,26 +2,12 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-
 import numpy as np
 
-from travel_py.grid import Grid, GridSpec
-from travel_py.cell_features import compute_all_cell_features
-from travel_py.seed import (
-    SeedSelector,
-    MinPointCount,
-    SmallHeightRange,
-    LowMeanHeight,
-)
-from travel_py.labeling import label_points_from_cells
-from travel_py.debug_viz import (
-    plot_cell_state,
-    plot_filtered_points_xy,
-)
-from travel_py.config import (
-    GridConfig,
-    load_config,
-)
+from travel_py.config import load_config
+from travel_py.debug_viz import plot_cell_state, plot_filtered_points_xy
+from travel_py.pipeline import run_fast, run_reference
+from travel_py.types import CellState
 
 
 # =========================
@@ -45,7 +31,7 @@ def load_points(path: Path) -> np.ndarray:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Python Travel ground segmentation (reference implementation)"
+        description="Python Travel ground segmentation (reference & fast implementation)"
     )
     parser.add_argument(
         "--points",
@@ -64,220 +50,50 @@ def main() -> None:
         default=Path("configs/default.yaml"),
         help="Path to config file",
     )
+    parser.add_argument(
+        "--reference",
+        action="store_true",
+        help="Use object-based reference implementation instead of vectorized fast path",
+    )
     args = parser.parse_args()
 
     # -------------------------
-    # Load input
+    # Load input & config
     # -------------------------
     points = load_points(args.points)
-    num_points = points.shape[0]
-
-    # Load config
     global_cfg = load_config(args.config)
 
-    # -------------------------
-    # Grid
-    # -------------------------
-    grid_cfg = global_cfg.grid
+    mode_name = "Reference (Object-based)" if args.reference else "Fast (Vectorized)"
+    print(f"Running Travel Pipeline [{mode_name}] on {args.points.name} ({len(points):,} points)...")
 
-    grid_spec = GridSpec(
-        resolution=grid_cfg.resolution,
-        origin_xy=grid_cfg.origin_xy,
-        size_xy=grid_cfg.size_xy,
-    )
-
-    grid = Grid.from_points(points, grid_spec)
+    if args.reference:
+        result = run_reference(points, global_cfg)
+    else:
+        # Keep grid objects only if visualization is requested
+        result = run_fast(points, global_cfg, keep_grid=args.viz)
 
     # -------------------------
-    # Cell features
+    # Report results
     # -------------------------
-    compute_all_cell_features(grid.iter_cells(), points)
-
-    # -------------------------
-    # TGS Step 1: Node-wise Ground Estimation
-    # -------------------------
-    from travel_py.plane import LocalPlaneEstimator
-    from travel_py.types import CellState
-
-    plane_estimator = LocalPlaneEstimator(
-        num_lpr=20,
-        th_seeds=0.5,
-        th_outlier=0.5,
-        th_normal=0.9, # > 0.9 means < 25 degrees tilt approx
-        min_points=3,
-        th_weight=0.0,
-    )
-    stats = {
-        CellState.GROUND: 0,
-        CellState.NON_GROUND: 0,
-        CellState.UNKNOWN: 0,
-    }
-
-    print("Running Node-wise Ground Estimation...")
-
-    for cell in grid.iter_cells():
-        for subcell in cell.subcells.values():
-            plane_estimator.estimate_and_update(subcell)
-            stats[subcell.label] += 1
-
+    print("Node-wise Ground Estimation:")
+    stats = result.step1_stats
     print(f"  Total SubCells : {sum(stats.values())}")
     print(f"  Ground         : {stats[CellState.GROUND]}")
     print(f"  Non-Ground     : {stats[CellState.NON_GROUND]}")
     print(f"  Unknown        : {stats[CellState.UNKNOWN]}")
-    
-    # -------------------------
-    # TGS Step 2: Traversal (BFS + LCC)
-    # -------------------------
-    from travel_py.graph import TraversabilityGraph
-    from travel_py.traversal import run_subcell_traversal
-    from travel_py.plane import is_traversable_lcc, PlaneModel
-    from travel_py.seed import find_dominant_subcells
-    
-    accept_cfg = global_cfg.accept
 
-    print("Running Traversal (BFS + LCC)...")
-    graph = TraversabilityGraph(grid)
-    start_nodes = find_dominant_subcells(grid, top_k=global_cfg.seed.top_k)
-    print(f"Traversal Seeds: {len(start_nodes)}")
-    
-    # Debug flag for traversal acceptance
-    debug_traversal = False # Set to True to see rejection reasons
-    
-    rejection_stats = {
-        "NO_SUBCELL": 0,
-        "NOT_GROUND_CANDIDATE": 0,
-        "NO_PLANE": 0,
-        "LOW_NORMAL": 0,
-        "SIMILARITY_TOO_LOW": 0,
-        "DIST_TOO_LARGE": 0,
-    }
-    
-    def accept_lcc(src_idx, dst_idx) -> bool:
-        # 1. Retrieve SubCells
-        src_cell = grid.cells.get((src_idx.i, src_idx.j))
-        dst_cell = grid.cells.get((dst_idx.i, dst_idx.j))
-        
-        if not src_cell or not dst_cell:
-            if debug_traversal: print(f"Reject: Missing cell {src_idx} or {dst_idx}")
-            rejection_stats["NO_SUBCELL"] += 1
-            return False
-            
-        src_sub = src_cell.subcells.get(src_idx.tri)
-        dst_sub = dst_cell.subcells.get(dst_idx.tri)
-        
-        if not src_sub or not dst_sub:
-            if debug_traversal: print(f"Reject: Missing subcell {src_idx} or {dst_idx}")
-            rejection_stats["NO_SUBCELL"] += 1
-            return False
-            
-        # 2. Check Candidate Status (Step 1 result)
-        if dst_sub.label != CellState.GROUND:
-            if debug_traversal: print(f"Reject: Dst {dst_idx} is {dst_sub.label}")
-            rejection_stats["NOT_GROUND_CANDIDATE"] += 1
-            return False
-            
-        # 3. Check Data Availability
-        if src_sub.normal is None or dst_sub.normal is None:
-            if debug_traversal: print(f"Reject: Missing normal {src_idx} or {dst_idx}")
-            rejection_stats["NO_PLANE"] += 1
-            return False
-            
-        # 4. Vertical Normal Check (Minimal Safe)
-        # Ensure both planes are roughly horizontal (ground-like)
-        # This prevents traversing onto walls even if they are "connected"
-        if src_sub.normal[2] < accept_cfg.th_normal or dst_sub.normal[2] < accept_cfg.th_normal:
-            if debug_traversal: print(f"Reject: Not vertical enough {src_idx} or {dst_idx}")
-            rejection_stats["LOW_NORMAL"] += 1
-            return False
-
-        # 5. LCC Check (Distance & Similarity)
-        src_plane = PlaneModel(
-            normal=src_sub.normal,
-            mean=src_sub.mean,
-            d=src_sub.d,
-            weight=src_sub.weight,
-            label=src_sub.label
-        )
-        dst_plane = PlaneModel(
-            normal=dst_sub.normal,
-            mean=dst_sub.mean,
-            d=dst_sub.d,
-            weight=dst_sub.weight,
-            label=dst_sub.label
-        )
-
-        is_ok, reason = is_traversable_lcc(
-            src_plane,
-            dst_plane,
-            th_normal=accept_cfg.th_normal,
-            th_dist=accept_cfg.max_height_diff,
-            verbose=debug_traversal
-        )
-        
-        if not is_ok:
-            if reason in rejection_stats:
-                rejection_stats[reason] += 1
-            return False
-            
-        return True
-
-    visited, rejected_count, max_depth = run_subcell_traversal(
-        graph=graph,
-        start_nodes=start_nodes,
-        accept_fn=accept_lcc,
-    )
-    
-    # Apply results
-    ground_final = 0
-    unknown_final = 0
-    
-    from travel_py.types import SubCellIndex
-    
-    for cell in grid.iter_cells():
-        for t, sub in cell.subcells.items():
-            idx = SubCellIndex(cell.index[0], cell.index[1], t)
-            
-            if idx in visited:
-                sub.label = CellState.GROUND
-                ground_final += 1
-            else:
-                # Was ground, but not reachable -> UNKNOWN
-                if sub.label == CellState.GROUND:
-                    sub.label = CellState.UNKNOWN
-                
-                if sub.label == CellState.UNKNOWN:
-                    unknown_final += 1
-                    
     print("Traversal Summary:")
-    print(f"  Seeds          : {len(start_nodes)}")
-    print(f"  Visited        : {len(visited)}")
-    print(f"  Rejected (Total): {rejected_count}")
-    print(f"  Max Depth      : {max_depth}")
-    print(f"  Final Ground   : {ground_final}")
+    print(f"  Seeds          : {result.num_seeds}")
+    print(f"  Visited        : {result.visited}")
+    print(f"  Rejected (Total): {result.rejected_count}")
+    print(f"  Max Depth      : {result.max_depth}")
+    print(f"  Final Ground   : {result.final_ground}")
     print("  Rejection Reasons:")
-    for reason, count in rejection_stats.items():
+    for reason, count in result.rejection_stats.items():
         if count > 0:
             print(f"    {reason:<20}: {count}")
 
-    # -------------------------
-    # Propagate SubCell labels to Cell state
-    # -------------------------
-    for cell in grid.iter_cells():
-        has_ground = any(sub.label == CellState.GROUND for sub in cell.subcells.values())
-        has_nonground = any(sub.label == CellState.NON_GROUND for sub in cell.subcells.values())
-        if has_ground:
-            cell.state = CellState.GROUND
-        elif has_nonground:
-            cell.state = CellState.NON_GROUND
-
-    # -------------------------
-    # Label propagation
-    # -------------------------
-    labels = label_points_from_cells(
-        cells=grid.cells,
-        num_points=num_points,
-    )
-
+    labels = result.labels
     ground_pts = int(np.sum(labels == 1))
     nonground_pts = int(np.sum(labels == 0))
     unknown_pts = int(np.sum(labels == -1))
@@ -286,11 +102,19 @@ def main() -> None:
     print(f"  Non-ground points: {nonground_pts}")
     print(f"  Unknown points   : {unknown_pts}")
 
+    if result.timings:
+        total_ms = sum(result.timings.values()) * 1000
+        print(f"Timing Breakdown (Total: {total_ms:.1f} ms):")
+        for stage, duration in result.timings.items():
+            ms = duration * 1000
+            pct = (duration / sum(result.timings.values())) * 100
+            print(f"  {stage:<12}: {ms:6.1f} ms ({pct:4.1f}%)")
+
     # -------------------------
     # Visualization
     # -------------------------
-    if args.viz:
-        plot_cell_state(grid.iter_cells())
+    if args.viz and result.grid is not None:
+        plot_cell_state(result.grid.iter_cells())
         plot_filtered_points_xy(points, labels)
 
 
