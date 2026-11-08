@@ -5,7 +5,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
-from .types import Cell
+from .types import Cell, SubCell
 
 
 Index2D = Tuple[int, int]
@@ -24,6 +24,57 @@ class GridSpec:
     resolution: float
     origin_xy: Tuple[float, float] = (0.0, 0.0)
     size_xy: Optional[Tuple[int, int]] = None  # (nx, ny)
+
+
+# =========================
+# Point -> cell / triangle assignment (shared with Grid.from_points)
+# =========================
+
+def assign_cells_and_tris(
+    points_xyz: np.ndarray, spec: GridSpec
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Vectorized cell index and TGS triangle assignment.
+
+    Returns
+    -------
+    in_indices : (K,) int64   original indices of points inside the grid (ascending)
+    ix, iy     : (K,) int64   cell indices of those points
+    tri        : (K,) int64   triangle id 0..3 (see graph.py for the convention)
+    """
+    if points_xyz.ndim != 2 or points_xyz.shape[1] < 3:
+        raise ValueError("points_xyz must be shape (N, 3) or (N, >=3)")
+    if spec.resolution <= 0:
+        raise ValueError("resolution must be > 0")
+
+    ox, oy = spec.origin_xy
+    r = spec.resolution
+    x = points_xyz[:, 0]
+    y = points_xyz[:, 1]
+    ix = np.floor((x - ox) / r).astype(np.int64)
+    iy = np.floor((y - oy) / r).astype(np.int64)
+
+    if spec.size_xy is not None:
+        nx, ny = spec.size_xy
+        in_mask = (0 <= ix) & (ix < nx) & (0 <= iy) & (iy < ny)
+        in_indices = np.nonzero(in_mask)[0]
+        ix, iy = ix[in_indices], iy[in_indices]
+        x, y = x[in_indices], y[in_indices]
+    else:
+        in_indices = np.arange(points_xyz.shape[0], dtype=np.int64)
+
+    # Angle from the cell center (identical arithmetic to the reference).
+    center_x = (ox + ix * r) + r * 0.5
+    center_y = (oy + iy * r) + r * 0.5
+    angles = np.arctan2(y - center_y, x - center_x)
+
+    q = np.pi / 4
+    tri = np.full(angles.shape, 2, dtype=np.int64)
+    tri[(angles >= q) & (angles < 3 * q)] = 1
+    tri[(angles >= -q) & (angles < q)] = 0
+    tri[(angles >= -3 * q) & (angles < -q)] = 3
+    return in_indices, ix, iy, tri
+
 
 
 class Grid:
@@ -131,114 +182,54 @@ class Grid:
             raise ValueError("points_xyz must be shape (N, 3) or (N, >=3)")
 
         grid = cls(spec)
+        n_total = points_xyz.shape[0]
 
-        x = points_xyz[:, 0]
-        y = points_xyz[:, 1]
+        in_indices, ix, iy, tri = assign_cells_and_tris(points_xyz, spec)
 
-        ox, oy = spec.origin_xy
-        r = spec.resolution
-
-        # Vectorized index computation
-        ix = np.floor((x - ox) / r).astype(np.int64)
-        iy = np.floor((y - oy) / r).astype(np.int64)
-
-        if spec.size_xy is not None:
-            nx, ny = spec.size_xy
-            in_mask = (0 <= ix) & (ix < nx) & (0 <= iy) & (iy < ny)
-            in_indices = np.nonzero(in_mask)[0]
-            out_indices = np.nonzero(~in_mask)[0]
-        else:
-            in_indices = np.arange(points_xyz.shape[0], dtype=np.int64)
-            out_indices = np.array([], dtype=np.int64)
-
-        if keep_dropped_indices and out_indices.size > 0:
-            grid.dropped_point_indices = out_indices.tolist()
-
-        # Bucket point indices into cells
-        # Approach: iterate over in-grid points; this is clear and sufficient for experimentation.
-        # If needed, later optimize by sorting unique (ix,iy).
-        
-        # Pre-compute cell centers for subcell assignment
-        # We need to do this per point or per cell?
-        # Per point is easier here since we iterate points.
-        
-        for pi in in_indices.tolist():
-            idx = (int(ix[pi]), int(iy[pi]))
-            cell = grid.get_or_create_cell(idx)
-            cell.point_indices.append(int(pi))
+        if keep_dropped_indices and in_indices.size < n_total:
+            grid.dropped_point_indices = np.setdiff1d(
+                np.arange(n_total, dtype=np.int64), in_indices, assume_unique=True
+            ).tolist()
 
         grid.num_points_in_grid = int(in_indices.size)
-        
-        # TGS: Assign points to SubCells
-        # Now that we have points in each cell, we can distribute them to subcells.
-        # This is more efficient than doing it in the loop above if we want to batch convert to numpy.
-        
+        if in_indices.size == 0:
+            return grid
+
+        # Vectorized bucketing: group points by (cell, tri) with a *stable* sort so
+        # that indices inside each Cell / SubCell stay in ascending original order.
+        ix0, iy0 = int(ix.min()), int(iy.min())
+        ny = int(iy.max()) - iy0 + 1
+        cell_key = (ix - ix0) * ny + (iy - iy0)
+
+        # Cells are inserted in first-appearance order (stable dict order).
+        ucell, first_pos = np.unique(cell_key, return_index=True)
+        for c in ucell[np.argsort(first_pos)].tolist():
+            grid.get_or_create_cell((c // ny + ix0, c % ny + iy0))
+
+        # Cell.point_indices
+        order_c = np.argsort(cell_key, kind="stable")
+        _, start_c, count_c = np.unique(cell_key[order_c], return_index=True, return_counts=True)
+        idx_c = in_indices[order_c].tolist()
+        for c, s, n in zip(ucell.tolist(), start_c.tolist(), count_c.tolist()):
+            grid.cells[(c // ny + ix0, c % ny + iy0)].point_indices = idx_c[s:s + n]
+
+        # TGS SubCells (always 4 per cell, possibly empty)
+        empty = points_xyz[:0]
         for cell in grid.iter_cells():
-            if not cell.point_indices:
-                continue
-                
-            # Get points for this cell
-            cell_points = points_xyz[cell.point_indices]
-            
-            # Cell center in world coordinates
-            cx, cy = grid.grid_index_to_world(cell.index[0], cell.index[1])
-            # grid_index_to_world returns origin (bottom-left), we need center?
-            # "origin_xy: world coordinate of grid index (0,0) cell's origin"
-            # "world_x = origin_x + ix * resolution"
-            # Usually origin is corner. Center is origin + resolution/2.
-            # Let's verify grid_index_to_world implementation.
-            # It returns (ox + ix*r, oy + iy*r). This is likely the corner.
-            # TGS usually uses center for angle calculation.
-            
-            center_x = cx + spec.resolution * 0.5
-            center_y = cy + spec.resolution * 0.5
-            
-            # Assign to subcells
-            # We can vectorize this for the cell points
-            dx = cell_points[:, 0] - center_x
-            dy = cell_points[:, 1] - center_y
-            angles = np.arctan2(dy, dx)
-            
-            # 0: up (-pi/4 <= angle < pi/4)  <- WAIT, y is up? 
-            # User spec:
-            # if  np.pi/4 <= angle < 3*np.pi/4: return 1  # left
-            # elif -np.pi/4 <= angle < np.pi/4: return 0  # up
-            # elif -3*np.pi/4 <= angle < -np.pi/4: return 3  # right
-            # else: return 2  # down
-            
-            # Note: standard arctan2(y, x)
-            # 0 is East (x+). pi/2 is North (y+).
-            # User map:
-            # 0 (up?): [-pi/4, pi/4) -> This is East (x+) direction actually. 
-            # Maybe "up" means "forward" in vehicle frame (x+)? 
-            # Let's stick to the ANGLE ranges provided by user, ignoring the comment names if they are confusing.
-            # Range [-pi/4, pi/4) is usually "Front" if x is forward.
-            
-            tri_ids = np.full(angles.shape, 2, dtype=int) # Default 2 (else case)
-            
-            # 1: [pi/4, 3pi/4)
-            mask1 = (angles >= np.pi/4) & (angles < 3*np.pi/4)
-            tri_ids[mask1] = 1
-            
-            # 0: [-pi/4, pi/4)
-            mask0 = (angles >= -np.pi/4) & (angles < np.pi/4)
-            tri_ids[mask0] = 0
-            
-            # 3: [-3pi/4, -pi/4)
-            mask3 = (angles >= -3*np.pi/4) & (angles < -np.pi/4)
-            tri_ids[mask3] = 3
-            
-            # 2: else (includes [3pi/4, pi] and [-pi, -3pi/4))
-            
-            # Create SubCells
-            cell_point_indices = np.array(cell.point_indices, dtype=np.int64)
             for t_id in range(4):
-                mask_t = (tri_ids == t_id)
-                sub_points = cell_points[mask_t]
-                sub_indices = cell_point_indices[mask_t].tolist()
+                cell.subcells[t_id] = SubCell(points=empty.copy(), point_indices=[])
 
-                from .types import SubCell  # avoid circular import at module level
-
-                cell.subcells[t_id] = SubCell(points=sub_points, point_indices=sub_indices)
+        key = cell_key * 4 + tri
+        order_s = np.argsort(key, kind="stable")
+        uniq_s, start_s, count_s = np.unique(key[order_s], return_index=True, return_counts=True)
+        sorted_idx = in_indices[order_s]
+        sorted_pts = points_xyz[sorted_idx]
+        sorted_idx_l = sorted_idx.tolist()
+        for k, s, n in zip(uniq_s.tolist(), start_s.tolist(), count_s.tolist()):
+            c, t_id = divmod(k, 4)
+            cell = grid.cells[(c // ny + ix0, c % ny + iy0)]
+            cell.subcells[t_id] = SubCell(
+                points=sorted_pts[s:s + n], point_indices=sorted_idx_l[s:s + n]
+            )
 
         return grid
