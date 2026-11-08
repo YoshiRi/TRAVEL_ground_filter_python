@@ -26,7 +26,19 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest
 
 ---
 
-## 直近の作業（2026-11 高速化対応 `perf/vectorize`）
+## 直近の作業（2026-11 公式C++準拠 Adaptive LCC 実装 `feat/adaptive-lcc`）
+
+1. **距離適応型 LCC（Adaptive Local Convexity / Concavity）の導入**
+   - 公式 C++ 実装 (`darrenjkt/TRAVEL` / `tgs.hpp` L816-834) に準拠した距離比例の適応閾値判定を実装
+   - `similarity >= 1 - sin(d * th_lcc_normal_similarity)`（角度係数 デフォルト 0.03）
+   - `max_dist = d * sin(th_lcc_planar_dist)`（角度係数 デフォルト 0.2）
+   - `AcceptConfig.use_adaptive_lcc` で固定閾値モード（既存）と適応閾値モードの切り替えに対応
+   - `src/travel_py/plane.py`、`fast.py`、`pipeline.py`、`config.py` に適用し、両モードでの高速パス・参照パスの完全等価性をテストで検証
+
+---
+
+## 直近の作業（2026-11 高速化対応 `perf/vectorize` PR #19 マージ完了）
+
 
 1. **ベクトル化パイプラインの実装 (`src/travel_py/fast.py`, `pipeline.py`)**
    - 点群を `(sid, z)` でソートしたフラット配列（SoA: Structure of Arrays）により、点ごと・SubCellごとのPythonループを排除

@@ -49,6 +49,33 @@ class TestFastEquivalenceSynthetic:
         assert res_ref.step1_stats == res_fast.step1_stats
         assert res_ref.rejection_stats == res_fast.rejection_stats
 
+    @pytest.mark.parametrize("use_adaptive", [False, True])
+    def test_synthetic_adaptive_equivalence(self, use_adaptive: bool):
+        points = _make_synthetic_cloud(n_points=3000, seed=456)
+        cfg = GlobalConfig(
+            grid=GridConfig(resolution=2.0, origin_xy=(-50.0, -50.0), size_xy=(100, 100)),
+            seed=SeedConfig(top_k=5),
+            accept=AcceptConfig(
+                max_height_diff=0.5,
+                th_normal=0.9,
+                use_adaptive_lcc=use_adaptive,
+                th_lcc_normal_similarity=0.03,
+                th_lcc_planar_dist=0.2,
+            ),
+        )
+
+        res_ref = run_reference(points, cfg)
+        res_fast = run_fast(points, cfg, keep_grid=True)
+
+        mismatches = np.sum(res_ref.labels != res_fast.labels)
+        assert mismatches == 0, f"Point label mismatch (adaptive={use_adaptive}): {mismatches} / {len(points)}"
+        assert res_ref.visited == res_fast.visited
+        assert res_ref.rejected_count == res_fast.rejected_count
+        assert res_ref.max_depth == res_fast.max_depth
+        assert res_ref.final_ground == res_fast.final_ground
+        assert res_ref.step1_stats == res_fast.step1_stats
+
+
 
 class TestFastEquivalenceRealData:
     @pytest.fixture

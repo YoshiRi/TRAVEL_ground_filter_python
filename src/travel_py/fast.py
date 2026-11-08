@@ -231,6 +231,9 @@ def traverse_iterative(
     th_normal: float,
     th_dist: float,
     prefer_center: bool = False,
+    adaptive: bool = False,
+    th_lcc_normal_similarity: float = 0.03,
+    th_lcc_planar_dist: float = 0.2,
 ) -> TraversalResult:
     """
     Iterative BFS matching seed.find_dominant_subcells(already_visited=visited).
@@ -306,6 +309,7 @@ def traverse_iterative(
 
             nu = nrm_l[u]
             mu = mean_l[u]
+            sin_planar_dist = math.sin(th_lcc_planar_dist) if adaptive else 0.0
             for g2 in nbrs:
                 v = dense_l[g2]
                 if v >= 0 and visited[v]:
@@ -319,14 +323,27 @@ def traverse_iterative(
                     stats["LOW_NORMAL"] += 1
                     total_rejected += 1
                     continue
-                if nu[0] * nv[0] + nu[1] * nv[1] + nu[2] * nv[2] < th_normal:
-                    stats["SIMILARITY_TOO_LOW"] += 1
-                    total_rejected += 1
-                    continue
                 mv = mean_l[v]
                 dx, dy, dz = mv[0] - mu[0], mv[1] - mu[1], mv[2] - mu[2]
-                if (abs(nu[0] * dx + nu[1] * dy + nu[2] * dz) > th_dist
-                        or abs(nv[0] * dx + nv[1] * dy + nv[2] * dz) > th_dist):
+                sim = nu[0] * nv[0] + nu[1] * nv[1] + nu[2] * nv[2]
+
+                if adaptive:
+                    diff_norm = math.sqrt(dx * dx + dy * dy + dz * dz)
+                    th_sim = 1.0 - math.sin(diff_norm * th_lcc_normal_similarity)
+                    if sim < th_sim:
+                        stats["SIMILARITY_TOO_LOW"] += 1
+                        total_rejected += 1
+                        continue
+                    max_d = diff_norm * sin_planar_dist
+                else:
+                    if sim < th_normal:
+                        stats["SIMILARITY_TOO_LOW"] += 1
+                        total_rejected += 1
+                        continue
+                    max_d = th_dist
+
+                if (abs(nu[0] * dx + nu[1] * dy + nu[2] * dz) > max_d
+                        or abs(nv[0] * dx + nv[1] * dy + nv[2] * dz) > max_d):
                     stats["DIST_TOO_LARGE"] += 1
                     total_rejected += 1
                     continue

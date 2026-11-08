@@ -167,11 +167,17 @@ def run_pipeline(points: np.ndarray, global_cfg: GlobalConfig) -> PipelineResult
             weight=dst_sub.weight,
             label=dst_sub.label,
         )
+        use_adaptive = getattr(accept_cfg, "use_adaptive_lcc", False)
+        th_norm_sim = getattr(accept_cfg, "th_lcc_normal_similarity", 0.03)
+        th_plan_dist = getattr(accept_cfg, "th_lcc_planar_dist", 0.2)
         ok, reason = is_traversable_lcc(
             src_plane,
             dst_plane,
             th_normal=accept_cfg.th_normal,
             th_dist=accept_cfg.max_height_diff,
+            adaptive=use_adaptive,
+            th_lcc_normal_similarity=th_norm_sim,
+            th_lcc_planar_dist=th_plan_dist,
         )
         if not ok:
             rejection_map[(dst_idx.i, dst_idx.j, dst_idx.tri)] = reason
@@ -273,12 +279,18 @@ def run_fast(points: np.ndarray, global_cfg: GlobalConfig, *, keep_grid: bool = 
     timer.lap("plane")
 
     prefer_center = getattr(global_cfg.seed, "prefer_center", False)
+    use_adaptive = getattr(global_cfg.accept, "use_adaptive_lcc", False)
+    th_norm_sim = getattr(global_cfg.accept, "th_lcc_normal_similarity", 0.03)
+    th_plan_dist = getattr(global_cfg.accept, "th_lcc_planar_dist", 0.2)
     trav = fast.traverse_iterative(
         flat, planes,
         top_k=global_cfg.seed.top_k,
         th_normal=global_cfg.accept.th_normal,
         th_dist=global_cfg.accept.max_height_diff,
         prefer_center=prefer_center,
+        adaptive=use_adaptive,
+        th_lcc_normal_similarity=th_norm_sim,
+        th_lcc_planar_dist=th_plan_dist,
     )
     final = fast.final_subcell_labels(planes, trav.visited)
     timer.lap("traversal")
