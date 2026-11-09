@@ -841,30 +841,85 @@ const CELL_STATE = {
   R: { name: 'Cell: Rejected',   color: '#ff8800' },
 };
 
-function buildGridTraces(grid) {
+function buildGridTraces(grid, resolution) {
+  if (!grid || !grid.cx || !grid.cx.length) return [];
+  const r = Number(resolution) || 5.0;
+  const half = r / 2;
+
   let minZ = Infinity;
   for (const z of grid.cz) if (z < minZ) minZ = z;
-  const flatZ = isFinite(minZ) ? minZ - 1.0 : -1.0;
+  const flatZ = isFinite(minZ) ? minZ - 0.5 : -0.5;
 
+  // Group cell indices by state
   const byState = {};
   for (let i = 0; i < grid.state.length; i++) {
     const s = grid.state[i];
-    if (!byState[s]) byState[s] = { cx: [], cy: [] };
-    byState[s].cx.push(grid.cx[i]);
-    byState[s].cy.push(grid.cy[i]);
+    if (!byState[s]) byState[s] = [];
+    byState[s].push(i);
   }
-  return Object.entries(byState).map(([s, d]) => ({
-    type: 'scatter3d', mode: 'markers',
-    name: CELL_STATE[s]?.name ?? `Cell: ${s}`,
-    legendgroup: 'grid',
-    x: d.cx, y: d.cy, z: Array(d.cx.length).fill(flatZ),
-    marker: {
-      size: 6,
+
+  const traces = [];
+
+  // 1. Mesh3d for filled cell tiles per state (real grid scale)
+  for (const [s, indices] of Object.entries(byState)) {
+    const allX = [], allY = [], allZ = [];
+    const allI = [], allJ = [], allK = [];
+
+    for (const idx of indices) {
+      const cx = grid.cx[idx];
+      const cy = grid.cy[idx];
+      const base = allX.length;
+
+      // 4 corners of the square cell (slight inset for clean tile borders)
+      const inset = half * 0.96;
+      allX.push(cx - inset, cx + inset, cx + inset, cx - inset);
+      allY.push(cy - inset, cy - inset, cy + inset, cy + inset);
+      allZ.push(flatZ, flatZ, flatZ, flatZ);
+
+      // Two triangles forming the quad
+      allI.push(base,     base);
+      allJ.push(base + 1, base + 2);
+      allK.push(base + 2, base + 3);
+    }
+
+    traces.push({
+      type: 'mesh3d',
+      name: CELL_STATE[s]?.name ?? `Cell: ${s}`,
+      legendgroup: 'grid',
+      x: allX, y: allY, z: allZ,
+      i: allI, j: allJ, k: allK,
       color: CELL_STATE[s]?.color ?? '#888',
-      opacity: 0.5,
-      symbol: 'square',
+      opacity: 0.35,
+      flatshading: true,
+      lighting: { ambient: 0.95, diffuse: 0.2 },
+      showlegend: true,
+    });
+  }
+
+  // 2. Wireframe grid lines outlining each cell
+  const lineX = [], lineY = [], lineZ = [];
+  for (let i = 0; i < grid.cx.length; i++) {
+    const cx = grid.cx[i];
+    const cy = grid.cy[i];
+    lineX.push(cx - half, cx + half, cx + half, cx - half, cx - half, null);
+    lineY.push(cy - half, cy - half, cy + half, cy + half, cy - half, null);
+    lineZ.push(flatZ, flatZ, flatZ, flatZ, flatZ, null);
+  }
+
+  traces.push({
+    type: 'scatter3d',
+    mode: 'lines',
+    name: 'Grid Wireframe',
+    legendgroup: 'grid',
+    showlegend: false,
+    x: lineX, y: lineY, z: lineZ,
+    line: {
+      color: 'rgba(90, 90, 110, 0.45)',
+      width: 2,
     },
-  }));
+  });
+
+  return traces;
 }
 
 // ── Layer: plane patches (mesh3d, Ground only) ──────────────────
@@ -1005,7 +1060,7 @@ function renderPlot() {
   if (document.getElementById('show-points').checked)
     traces.push(...buildPointTraces(labels));
   if (document.getElementById('show-grid').checked)
-    traces.push(...buildGridTraces(grid));
+    traces.push(...buildGridTraces(grid, resolution));
   if (document.getElementById('show-planes').checked)
     traces.push(...buildPlaneTraces(planes, resolution));
   if (document.getElementById('show-smooth').checked)
