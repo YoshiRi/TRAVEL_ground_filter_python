@@ -104,3 +104,28 @@ class TestFastEquivalenceRealData:
         assert mismatches == 0, f"Mismatch on sample.npy at res={resolution}: {mismatches} points"
         assert res_ref.visited == res_fast.visited
         assert res_ref.step1_stats == res_fast.step1_stats
+
+    @pytest.mark.parametrize("use_14", [False, True])
+    @pytest.mark.parametrize("re_explore", [False, True])
+    def test_synthetic_advanced_features_equivalence(self, use_14: bool, re_explore: bool):
+        points = _make_synthetic_cloud(n_points=3000, seed=789)
+        cfg = GlobalConfig(
+            grid=GridConfig(resolution=2.5, origin_xy=(-50.0, -50.0), size_xy=(100, 100)),
+            seed=SeedConfig(top_k=3, re_explore=re_explore, max_components=20),
+            accept=AcceptConfig(
+                max_height_diff=0.5,
+                th_normal=0.9,
+                use_adaptive_lcc=True,
+                use_14_neighbors=use_14,
+            ),
+        )
+
+        res_ref = run_reference(points, cfg)
+        res_fast = run_fast(points, cfg, keep_grid=True)
+
+        mismatches = np.sum(res_ref.labels != res_fast.labels)
+        assert mismatches == 0, f"Mismatch (use_14={use_14}, re_explore={re_explore}): {mismatches} points"
+        assert res_ref.visited == res_fast.visited
+        assert res_ref.rejected_count == res_fast.rejected_count
+        assert res_ref.max_depth == res_fast.max_depth
+        assert res_ref.final_ground == res_fast.final_ground

@@ -38,6 +38,8 @@ class SeedConfig:
     use_mean_height: bool = True
     top_k: int = 5
     prefer_center: bool = False  # score by weight / (1 + dist_to_origin) to favour near-sensor seeds
+    re_explore: bool = False     # re-explore unvisited GROUND candidate subcells when queue is empty (official TRAVEL)
+    max_components: int = 100    # maximum ground components to explore when re_explore=True
 
 
 # =========================
@@ -56,6 +58,7 @@ class AcceptConfig:
     use_adaptive_lcc: bool = False     # Use TRAVEL official adaptive LCC thresholds based on inter-mean distance
     th_lcc_normal_similarity: float = 0.03  # angular coefficient for normal similarity: 1 - sin(d * theta)
     th_lcc_planar_dist: float = 0.2         # angular coefficient for plane distance: d * sin(theta)
+    use_14_neighbors: bool = False          # Use TRAVEL official 14-neighbor connectivity instead of strict 4-neighbors
 
 
 # =========================

@@ -115,6 +115,22 @@ def main() -> None:
         help="Enable TRAVEL official distance-dependent adaptive LCC",
     )
     parser.add_argument(
+        "--use-14-neighbors",
+        action="store_true",
+        help="Enable TRAVEL official 14-neighbor expansion instead of 4-neighbors",
+    )
+    parser.add_argument(
+        "--re-explore",
+        action="store_true",
+        help="Enable TRAVEL official multi-component re-exploration for unvisited ground",
+    )
+    parser.add_argument(
+        "--max-components",
+        type=int,
+        default=50,
+        help="Max connected components when re-explore is enabled (default: 50)",
+    )
+    parser.add_argument(
         "--prefer-center",
         action="store_true",
         default=True,
@@ -146,7 +162,7 @@ def main() -> None:
 
     print(f"=== TRAVEL Ground Filter — SemanticKITTI Benchmark ===")
     print(f"Sequence: {args.data_dir.name} ({len(bin_files)} frames)")
-    print(f"Config: resolution={args.resolution}m, adaptive_lcc={args.adaptive}, top_k={args.top_k}, prefer_center={args.prefer_center}")
+    print(f"Config: resolution={args.resolution}m, adaptive={args.adaptive}, 14_nbrs={args.use_14_neighbors}, re_explore={args.re_explore}")
     print()
 
     # Grid config
@@ -160,6 +176,8 @@ def main() -> None:
         seed=SeedConfig(
             top_k=args.top_k,
             prefer_center=args.prefer_center,
+            re_explore=args.re_explore,
+            max_components=args.max_components,
         ),
         accept=AcceptConfig(
             max_height_diff=0.5,
@@ -167,6 +185,7 @@ def main() -> None:
             use_adaptive_lcc=args.adaptive,
             th_lcc_normal_similarity=0.03,
             th_lcc_planar_dist=0.2,
+            use_14_neighbors=args.use_14_neighbors,
         ),
     )
 

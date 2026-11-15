@@ -23,21 +23,58 @@ _EXTERNAL_NEIGHBOR: dict[int, tuple[int, int, int]] = {
     3: ( 0, -1, 1),
 }
 
+# 14-neighbor external connectivity from official TRAVEL (tgs.hpp L680-770 searchNeighborNodes):
+# Connects not only to the edge-sharing adjacent triangle, but also to adjacent
+# triangles across vertices/corners (total 11 external triangles per subcell).
+_EXTERNAL_14_NEIGHBORS: dict[int, tuple[tuple[int, int, int], ...]] = {
+    0: (
+        (+1, +1, 2), (+1, +1, 3),
+        (+1,  0, 1), (+1,  0, 2), (+1,  0, 3),
+        (+1, -1, 1), (+1, -1, 2),
+        ( 0, +1, 0), ( 0, +1, 3),
+        ( 0, -1, 0), ( 0, -1, 1),
+    ),
+    1: (
+        (+1, +1, 2), (+1, +1, 3),
+        (+1,  0, 1), (+1,  0, 2),
+        ( 0, +1, 0), ( 0, +1, 2), ( 0, +1, 3),
+        (-1, +1, 0), (-1, +1, 3),
+        (-1,  0, 0), (-1,  0, 1),
+    ),
+    2: (
+        ( 0, +1, 2), ( 0, +1, 3),
+        ( 0, -1, 1), ( 0, -1, 2),
+        (-1, +1, 0), (-1, +1, 3),
+        (-1,  0, 0), (-1,  0, 1), (-1,  0, 3),
+        (-1, -1, 0), (-1, -1, 1),
+    ),
+    3: (
+        (+1,  0, 2), (+1,  0, 3),
+        (+1, -1, 1), (+1, -1, 2),
+        ( 0, -1, 0), ( 0, -1, 1), ( 0, -1, 2),
+        (-1,  0, 0), (-1,  0, 3),
+        (-1, -1, 0), (-1, -1, 1),
+    ),
+}
+
 
 class TraversabilityGraph:
-    def __init__(self, grid: Grid):
+    def __init__(self, grid: Grid, use_14_neighbors: bool = False):
         self.grid = grid
+        self.use_14_neighbors = use_14_neighbors
 
     def get_neighbor_subcells(self, idx: SubCellIndex) -> List[SubCellIndex]:
         """
-        Return strict TGS neighbors of *idx*.
+        Return neighbors of *idx*.
 
         Internal (same cell, center-sharing):
             All 3 other triangles in the same cell.
 
-        External (edge-sharing across cell boundary):
-            Exactly one triangle in the directly adjacent cell,
-            determined by which cell edge the triangle faces.
+        External:
+            - If use_14_neighbors=False (strict 4-neighbors):
+              Exactly one triangle in the directly adjacent cell sharing the boundary edge.
+            - If use_14_neighbors=True (official 14-neighbors):
+              Up to 11 triangles in edge- and corner-adjacent cells.
         """
         neighbors: List[SubCellIndex] = []
 
@@ -46,11 +83,16 @@ class TraversabilityGraph:
             if t != idx.tri:
                 neighbors.append(SubCellIndex(idx.i, idx.j, t))
 
-        # 2. External: the single adjacent tri that shares the boundary edge.
-        di, dj, ext_tri = _EXTERNAL_NEIGHBOR[idx.tri]
-        ni, nj = idx.i + di, idx.j + dj
-
-        if self.grid._in_bounds(ni, nj) and (ni, nj) in self.grid.cells:
-            neighbors.append(SubCellIndex(ni, nj, ext_tri))
+        # 2. External neighbors
+        if self.use_14_neighbors:
+            for di, dj, ext_tri in _EXTERNAL_14_NEIGHBORS[idx.tri]:
+                ni, nj = idx.i + di, idx.j + dj
+                if self.grid._in_bounds(ni, nj) and (ni, nj) in self.grid.cells:
+                    neighbors.append(SubCellIndex(ni, nj, ext_tri))
+        else:
+            di, dj, ext_tri = _EXTERNAL_NEIGHBOR[idx.tri]
+            ni, nj = idx.i + di, idx.j + dj
+            if self.grid._in_bounds(ni, nj) and (ni, nj) in self.grid.cells:
+                neighbors.append(SubCellIndex(ni, nj, ext_tri))
 
         return neighbors
