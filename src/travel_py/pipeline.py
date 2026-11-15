@@ -117,7 +117,8 @@ def run_pipeline(points: np.ndarray, global_cfg: GlobalConfig) -> PipelineResult
             step1_labels[(cell.index[0], cell.index[1], t)] = sub.label
     timer.lap("plane")
 
-    graph = TraversabilityGraph(grid)
+    use_14 = getattr(accept_cfg, "use_14_neighbors", False)
+    graph = TraversabilityGraph(grid, use_14_neighbors=use_14)
     seed_cfg = global_cfg.seed
 
     rejection_map: dict[tuple, str] = {}
@@ -192,7 +193,11 @@ def run_pipeline(points: np.ndarray, global_cfg: GlobalConfig) -> PipelineResult
     max_depth = 0
 
     prefer_center = getattr(seed_cfg, "prefer_center", False)
-    for _ in range(seed_cfg.top_k):
+    re_explore = getattr(seed_cfg, "re_explore", False)
+    max_components = getattr(seed_cfg, "max_components", 100)
+    limit = max_components if re_explore else seed_cfg.top_k
+
+    for _ in range(limit):
         seeds = find_dominant_subcells(
             grid,
             top_k=1,
@@ -282,6 +287,9 @@ def run_fast(points: np.ndarray, global_cfg: GlobalConfig, *, keep_grid: bool = 
     use_adaptive = getattr(global_cfg.accept, "use_adaptive_lcc", False)
     th_norm_sim = getattr(global_cfg.accept, "th_lcc_normal_similarity", 0.03)
     th_plan_dist = getattr(global_cfg.accept, "th_lcc_planar_dist", 0.2)
+    use_14 = getattr(global_cfg.accept, "use_14_neighbors", False)
+    re_explore = getattr(global_cfg.seed, "re_explore", False)
+    max_comp = getattr(global_cfg.seed, "max_components", 100)
     trav = fast.traverse_iterative(
         flat, planes,
         top_k=global_cfg.seed.top_k,
@@ -291,6 +299,9 @@ def run_fast(points: np.ndarray, global_cfg: GlobalConfig, *, keep_grid: bool = 
         adaptive=use_adaptive,
         th_lcc_normal_similarity=th_norm_sim,
         th_lcc_planar_dist=th_plan_dist,
+        use_14_neighbors=use_14,
+        re_explore=re_explore,
+        max_components=max_comp,
     )
     final = fast.final_subcell_labels(planes, trav.visited)
     timer.lap("traversal")

@@ -32,6 +32,43 @@ _CODE_TO_STATE = {
 # Same edge-sharing table as graph._EXTERNAL_NEIGHBOR: tri -> (di, dj, neighbor tri)
 _EXTERNAL_NEIGHBOR = ((1, 0, 2), (0, 1, 3), (-1, 0, 0), (0, -1, 1))
 
+# Official TRAVEL 14-neighbor external connectivity (tgs.hpp searchNeighborNodes):
+# tri -> tuple of (di, dj, ext_tri) (11 external triangles per subcell)
+_EXTERNAL_14_NEIGHBORS = (
+    # tri 0 (East): 11 external neighbors
+    (
+        (+1, +1, 2), (+1, +1, 3),
+        (+1,  0, 1), (+1,  0, 2), (+1,  0, 3),
+        (+1, -1, 1), (+1, -1, 2),
+        ( 0, +1, 0), ( 0, +1, 3),
+        ( 0, -1, 0), ( 0, -1, 1),
+    ),
+    # tri 1 (North): 11 external neighbors
+    (
+        (+1, +1, 2), (+1, +1, 3),
+        (+1,  0, 1), (+1,  0, 2),
+        ( 0, +1, 0), ( 0, +1, 2), ( 0, +1, 3),
+        (-1, +1, 0), (-1, +1, 3),
+        (-1,  0, 0), (-1,  0, 1),
+    ),
+    # tri 2 (West): 11 external neighbors
+    (
+        ( 0, +1, 2), ( 0, +1, 3),
+        ( 0, -1, 1), ( 0, -1, 2),
+        (-1, +1, 0), (-1, +1, 3),
+        (-1,  0, 0), (-1,  0, 1), (-1,  0, 3),
+        (-1, -1, 0), (-1, -1, 1),
+    ),
+    # tri 3 (South): 11 external neighbors
+    (
+        (+1,  0, 2), (+1,  0, 3),
+        (+1, -1, 1), (+1, -1, 2),
+        ( 0, -1, 0), ( 0, -1, 1), ( 0, -1, 2),
+        (-1,  0, 0), (-1,  0, 3),
+        (-1, -1, 0), (-1, -1, 1),
+    ),
+)
+
 
 # =========================
 # Flat grid
@@ -234,6 +271,9 @@ def traverse_iterative(
     adaptive: bool = False,
     th_lcc_normal_similarity: float = 0.03,
     th_lcc_planar_dist: float = 0.2,
+    use_14_neighbors: bool = False,
+    re_explore: bool = False,
+    max_components: int = 100,
 ) -> TraversalResult:
     """
     Iterative BFS matching seed.find_dominant_subcells(already_visited=visited).
@@ -278,7 +318,9 @@ def traverse_iterative(
     cand_ptr = 0
     num_cand = len(ranked_candidates)
 
-    for _ in range(max(top_k, 0)):
+    limit = max_components if re_explore else max(top_k, 0)
+
+    for _ in range(limit):
         # Find next unvisited ground seed
         next_seed = -1
         while cand_ptr < num_cand:
@@ -302,10 +344,16 @@ def traverse_iterative(
             c, tr = divmod(g, 4)
             ci_val, cj_val = divmod(c, ny)
             nbrs = [c * 4 + t for t in range(4) if t != tr]
-            di, dj, et = _EXTERNAL_NEIGHBOR[tr]
-            ni, nj = ci_val + di, cj_val + dj
-            if 0 <= ni < nx and 0 <= nj < ny and cell_l[ni * ny + nj]:
-                nbrs.append((ni * ny + nj) * 4 + et)
+            if use_14_neighbors:
+                for di, dj, et in _EXTERNAL_14_NEIGHBORS[tr]:
+                    ni, nj = ci_val + di, cj_val + dj
+                    if 0 <= ni < nx and 0 <= nj < ny and cell_l[ni * ny + nj]:
+                        nbrs.append((ni * ny + nj) * 4 + et)
+            else:
+                di, dj, et = _EXTERNAL_NEIGHBOR[tr]
+                ni, nj = ci_val + di, cj_val + dj
+                if 0 <= ni < nx and 0 <= nj < ny and cell_l[ni * ny + nj]:
+                    nbrs.append((ni * ny + nj) * 4 + et)
 
             nu = nrm_l[u]
             mu = mean_l[u]

@@ -18,17 +18,22 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # 1. Quantitative Benchmark Chart
 # -------------------------------------------------------------------------
 def plot_metrics_chart():
-    # Data from 101 frames benchmark
-    categories = ["5.0m (Fixed)", "5.0m (Adaptive)", "2.5m (Fixed)", "2.5m (Adaptive)"]
-    overall_iou = [82.74, 82.72, 84.74, 83.61]
-    overall_prec = [85.61, 85.91, 91.29, 94.47]
-    overall_rec = [96.11, 95.70, 92.19, 87.92]
-    overall_f1 = [90.56, 90.55, 91.74, 91.07]
-    latency_ms = [32.8, 32.6, 37.6, 37.6]
+    # Data from 101 frames benchmark on SemanticKITTI 00
+    categories = [
+        "5.0m (4-nbr)",
+        "2.5m (4-nbr)",
+        "2.5m (14-nbr)",
+        "2.5m (14-nbr+ReEx)",
+    ]
+    overall_iou = [82.74, 83.61, 85.20, 83.05]
+    overall_prec = [85.61, 94.47, 90.45, 87.27]
+    overall_rec = [96.11, 87.92, 93.62, 94.49]
+    overall_f1 = [90.56, 91.07, 92.01, 90.74]
+    latency_ms = [32.8, 37.6, 37.9, 38.5]
 
-    near_iou = [83.41, 83.40, 86.38, 85.50]
-    mid_iou = [73.81, 73.67, 58.44, 52.98]
-    far_iou = [39.78, 37.75, 3.16, 1.38]
+    near_iou = [83.41, 85.50, 85.97, 83.77]
+    mid_iou = [73.81, 52.98, 74.54, 73.09]
+    far_iou = [39.78, 1.38, 28.99, 46.21]
 
     plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), dpi=200)
