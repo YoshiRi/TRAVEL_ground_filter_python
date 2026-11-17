@@ -42,7 +42,10 @@ logs/
 !data/sample.npy
 !data/autoware_front.npy
 !data/sample_pcd/
+data/sample_pcd/*
 !data/sample_pcd/pointcloud_map.pcd
+sample.npy
+scratch/
 
 # Temporary experiment files
 *.ply
