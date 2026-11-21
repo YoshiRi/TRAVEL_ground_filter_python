@@ -114,19 +114,20 @@ def plot_qualitative_eval():
     ground_classes = {40, 44, 48, 49, 60, 72}
     gt_ground = np.isin(raw_labels, list(ground_classes))
 
-    # Run TRAVEL with resolution 5.0m
-    nx = int(np.ceil(170 / 5.0))
+    # Run TRAVEL with latest recommended resolution 2.5m (14-nbr + re-explore)
+    resolution = 2.5
+    nx = int(np.ceil(170 / resolution))
     cfg = GlobalConfig(
-        grid=GridConfig(resolution=5.0, origin_xy=(-85.0, -85.0), size_xy=(nx, nx)),
-        seed=SeedConfig(top_k=5, prefer_center=True),
-        accept=AcceptConfig(max_height_diff=0.5, th_normal=0.9),
+        grid=GridConfig(resolution=resolution, origin_xy=(-85.0, -85.0), size_xy=(nx, nx)),
+        seed=SeedConfig(top_k=5, prefer_center=True, re_explore=True, max_components=50),
+        accept=AcceptConfig(max_height_diff=0.5, th_normal=0.9, use_adaptive_lcc=True, use_14_neighbors=True),
     )
     res = run_fast(pts_xyz, cfg, keep_grid=False)
     pred_ground = (res.labels == 1)
 
     # Confusion categories
     # TP: Ground correctly identified (Green)
-    # TN: Non-ground correctly rejected (Light Gray)
+    # TN: Non-ground correctly rejected (Gray)
     # FP: Non-ground falsely marked as ground (Red)
     # FN: Ground missed (Orange)
     tp = gt_ground & pred_ground
@@ -134,8 +135,19 @@ def plot_qualitative_eval():
     fp = (~gt_ground) & pred_ground
     fn = gt_ground & (~pred_ground)
 
+    tp_cnt = int(np.sum(tp))
+    tn_cnt = int(np.sum(tn))
+    fp_cnt = int(np.sum(fp))
+    fn_cnt = int(np.sum(fn))
+    gt_gnd_cnt = int(np.sum(gt_ground))
+    gt_nongnd_cnt = int(np.sum(~gt_ground))
+
+    prec = tp_cnt / (tp_cnt + fp_cnt) * 100 if (tp_cnt + fp_cnt) > 0 else 0
+    rec = tp_cnt / (tp_cnt + fn_cnt) * 100 if (tp_cnt + fn_cnt) > 0 else 0
+    iou = tp_cnt / (tp_cnt + fp_cnt + fn_cnt) * 100 if (tp_cnt + fp_cnt + fn_cnt) > 0 else 0
+
     # Downsample points for clear visualization
-    subsample_idx = np.random.choice(len(pts_xyz), size=min(60000, len(pts_xyz)), replace=False)
+    subsample_idx = np.random.choice(len(pts_xyz), size=min(70000, len(pts_xyz)), replace=False)
     x = pts_xyz[subsample_idx, 0]
     y = pts_xyz[subsample_idx, 1]
     z = pts_xyz[subsample_idx, 2]
@@ -163,8 +175,8 @@ def plot_qualitative_eval():
 
     # Panel 1: Ground Truth (BEV)
     ax1 = axes[0]
-    ax1.scatter(x[~gt_sub], y[~gt_sub], s=0.4, c="#a0a0a0", alpha=0.4, label="Non-Ground (Obstacles/Vegetation)")
-    ax1.scatter(x[gt_sub], y[gt_sub], s=0.6, c="#2ecc71", alpha=0.7, label="Ground Truth (Road/Sidewalk/Terrain)")
+    ax1.scatter(x[~gt_sub], y[~gt_sub], s=0.5, c="#95a5a6", alpha=0.5, label="Non-Ground (Obstacles/Vegetation)")
+    ax1.scatter(x[gt_sub], y[gt_sub], s=0.5, c="#2ecc71", alpha=0.6, label="Ground Truth (Road/Sidewalk/Terrain)")
     ax1.plot(0, 0, marker="^", color="red", markersize=8, label="Ego Sensor")
     ax1.set_title("(1) SemanticKITTI Ground Truth (Frame 000000)", fontsize=11, fontweight="bold")
     ax1.set_xlabel("X (forward, m)", fontsize=9)
@@ -176,10 +188,10 @@ def plot_qualitative_eval():
 
     # Panel 2: TRAVEL Prediction (BEV)
     ax2 = axes[1]
-    ax2.scatter(x[~pred_sub], y[~pred_sub], s=0.4, c="#a0a0a0", alpha=0.4, label="Non-Ground")
-    ax2.scatter(x[pred_sub], y[pred_sub], s=0.6, c="#3498db", alpha=0.7, label="TRAVEL Ground Filtered")
+    ax2.scatter(x[~pred_sub], y[~pred_sub], s=0.5, c="#95a5a6", alpha=0.5, label="Non-Ground")
+    ax2.scatter(x[pred_sub], y[pred_sub], s=0.5, c="#3498db", alpha=0.6, label="TRAVEL Ground Filtered")
     ax2.plot(0, 0, marker="^", color="red", markersize=8, label="Ego Sensor")
-    ax2.set_title("(2) TRAVEL Fast Prediction (res=5.0m, 33ms)", fontsize=11, fontweight="bold")
+    ax2.set_title(f"(2) TRAVEL Fast Prediction (res={resolution}m, 14-nbr+ReEx, 38ms)", fontsize=11, fontweight="bold")
     ax2.set_xlabel("X (forward, m)", fontsize=9)
     ax2.set_ylabel("Y (left, m)", fontsize=9)
     ax2.set_xlim(-50, 50)
@@ -188,13 +200,14 @@ def plot_qualitative_eval():
     ax2.legend(loc="upper right", markerscale=6, framealpha=0.9, fontsize=8)
 
     # Panel 3: Confusion Map (Error Analysis)
+    # Balanced marker sizing and drawing order: TP (green) -> TN (gray) -> FN (orange) -> FP (red)
     ax3 = axes[2]
-    ax3.scatter(x[tn_sub], y[tn_sub], s=0.3, c="#d0d0d0", alpha=0.3, label="TN: Correct Obstacle")
-    ax3.scatter(x[tp_sub], y[tp_sub], s=0.5, c="#27ae60", alpha=0.6, label="TP: Correct Ground (98.6%)")
-    ax3.scatter(x[fp_sub], y[fp_sub], s=1.2, c="#e74c3c", alpha=0.9, label="FP: Over-segmented Obstacle (4.8%)")
-    ax3.scatter(x[fn_sub], y[fn_sub], s=1.5, c="#f39c12", alpha=0.9, label="FN: Missed Ground (1.4%)")
+    ax3.scatter(x[tp_sub], y[tp_sub], s=0.5, c="#2ecc71", alpha=0.5, label=f"TP: Correct Ground ({rec:.1f}%)")
+    ax3.scatter(x[tn_sub], y[tn_sub], s=0.5, c="#95a5a6", alpha=0.5, label=f"TN: Correct Obstacle ({tn_cnt/gt_nongnd_cnt*100:.1f}%)")
+    ax3.scatter(x[fn_sub], y[fn_sub], s=0.6, c="#f39c12", alpha=0.8, label=f"FN: Missed Ground ({fn_cnt/gt_gnd_cnt*100:.1f}%)")
+    ax3.scatter(x[fp_sub], y[fp_sub], s=0.6, c="#e74c3c", alpha=0.8, label=f"FP: Over-segmented Obstacle ({fp_cnt/gt_nongnd_cnt*100:.1f}%)")
     ax3.plot(0, 0, marker="^", color="black", markersize=8, label="Ego Sensor")
-    ax3.set_title("(3) Confusion Map (Precision: 90.4%, Recall: 98.6%, IoU: 89.3%)", fontsize=11, fontweight="bold")
+    ax3.set_title(f"(3) Confusion Map (Precision: {prec:.1f}%, Recall: {rec:.1f}%, IoU: {iou:.1f}%)", fontsize=11, fontweight="bold")
     ax3.set_xlabel("X (forward, m)", fontsize=9)
     ax3.set_ylabel("Y (left, m)", fontsize=9)
     ax3.set_xlim(-50, 50)
