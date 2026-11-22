@@ -199,6 +199,20 @@ GitHub Pages有効化後、通常は以下で確認できます。
 
 ---
 
+## 公式 TRAVEL からの乖離と拡張レイヤー管理
+
+本リポジトリでは、**公式 C++ 実装 (`darrenjkt/TRAVEL`) に準拠する地面検知（Layer 1）** と、**実運用向けの到達性検証（Layer 2: 独自拡張）** を意図的に分離して管理しています。
+
+| レイヤー | モジュール | 責務 | 公式 TRAVEL との関係 |
+|---|---|---|---|
+| **Layer 1: Ground Detection** | `fast.py`, `plane.py`, `graph.py`, `traversal.py` | LPR + PCA 局所平面推定、適応型 LCC、14近傍探索、マルチコンポーネント再探索 | **公式 `tgs.hpp` 準拠**（デフォルト設定） |
+| **Layer 2: Reachability Verification** | `reachability.py` (`ReachabilityConfig`) | 再探索で拾った孤立平坦面を `PRIMARY` / `BRIDGED` / `OTHER_LEVEL` に階層分離（双方向平面外挿＋下方重なり除外） | **独自拡張**（`reachability.enabled=True` で明示有効化） |
+
+- `ReachabilityConfig(enabled=False)`（デフォルト）では Layer 2 は一切実行されず、純粋な TRAVEL として動作します。
+- `ReachabilityConfig(enabled=True)` を有効にすると、建物のテラス・車の屋根・高架などの高所平坦面（`OTHER_LEVEL`）を安全に除外しつつ、遮蔽・遠方疎点群の先にある同一路面（`BRIDGED`）のみを救済します。
+
+---
+
 ## ライセンス
 
 MIT License（または任意ライセンスを指定）。

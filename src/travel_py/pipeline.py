@@ -16,6 +16,7 @@ from travel_py.seed import find_dominant_subcells
 from travel_py.traversal import run_subcell_traversal
 from travel_py.types import CellState, SubCellIndex
 from travel_py import fast
+from travel_py import reachability
 
 
 def make_plane_estimator(accept_cfg) -> LocalPlaneEstimator:
@@ -59,6 +60,9 @@ class PipelineResult:
     rejected_count: int = 0
     max_depth: int = 0
     rejection_stats: Dict[str, int] = field(default_factory=dict)
+    # Layer 2 Reachability extension outputs (populated when reachability.enabled=True)
+    reachability_levels: Optional[np.ndarray] = None  # (N,) int8 (LEVEL_NONE/PRIMARY/BRIDGED/OTHER)
+    reachability_stats: Dict[str, int] = field(default_factory=dict)
 
     @property
     def num_seeds(self) -> int:
@@ -303,8 +307,28 @@ def run_fast(points: np.ndarray, global_cfg: GlobalConfig, *, keep_grid: bool = 
         re_explore=re_explore,
         max_components=max_comp,
     )
-    final = fast.final_subcell_labels(planes, trav.visited)
     timer.lap("traversal")
+
+    # Optional Layer 2: Reachability / Traversability Verification (B+D+E extension)
+    reach_cfg = getattr(global_cfg, "reachability", None)
+    if reach_cfg is not None and reach_cfg.enabled:
+        reach_res = reachability.verify_reachability(
+            flat,
+            planes,
+            trav,
+            reach_cfg,
+            primary_component_count=global_cfg.seed.top_k,
+        )
+        effective_visited = reach_res.reachable_visited
+        reach_levels = reach_res.point_levels
+        reach_stats = reach_res.stats
+        timer.lap("reachability")
+    else:
+        effective_visited = trav.visited
+        reach_levels = None
+        reach_stats = {}
+
+    final = fast.final_subcell_labels(planes, effective_visited)
 
     labels = fast.label_points(flat, planes, final)
     timer.lap("label")
@@ -323,7 +347,7 @@ def run_fast(points: np.ndarray, global_cfg: GlobalConfig, *, keep_grid: bool = 
 
     visited_set = {
         SubCellIndex(int(ci[m]), int(cj[m]), int(flat.tri[m]))
-        for m in np.nonzero(trav.visited)[0]
+        for m in np.nonzero(effective_visited)[0]
     }
     start_nodes = [
         SubCellIndex(int(ci[s]), int(cj[s]), int(flat.tri[s]))
@@ -347,4 +371,6 @@ def run_fast(points: np.ndarray, global_cfg: GlobalConfig, *, keep_grid: bool = 
         rejected_count=trav.rejected_count,
         max_depth=trav.max_depth,
         rejection_stats=trav.rejection_stats,
+        reachability_levels=reach_levels,
+        reachability_stats=reach_stats,
     )

@@ -258,6 +258,7 @@ class TraversalResult:
     rejected_count: int
     max_depth: int
     rejection_stats: Dict[str, int]
+    component_id: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int32))  # (M,) int32, -1 if unvisited
 
 
 def traverse_iterative(
@@ -311,6 +312,7 @@ def traverse_iterative(
 
     stats = {k: 0 for k in REJECTION_KEYS}
     visited = [False] * M
+    comp_ids = [-1] * M
     start_seeds: List[int] = []
     total_rejected = 0
     max_depth = 0
@@ -332,8 +334,10 @@ def traverse_iterative(
         if next_seed < 0:
             break
 
+        curr_comp_id = len(start_seeds)
         start_seeds.append(next_seed)
         visited[next_seed] = True
+        comp_ids[next_seed] = curr_comp_id
         q: deque = deque([(next_seed, 0)])
 
         while q:
@@ -396,6 +400,7 @@ def traverse_iterative(
                     total_rejected += 1
                     continue
                 visited[v] = True
+                comp_ids[v] = curr_comp_id
                 q.append((v, depth + 1))
 
     return TraversalResult(
@@ -404,6 +409,7 @@ def traverse_iterative(
         rejected_count=total_rejected,
         max_depth=max_depth,
         rejection_stats=stats,
+        component_id=np.array(comp_ids, dtype=np.int32),
     )
 
 

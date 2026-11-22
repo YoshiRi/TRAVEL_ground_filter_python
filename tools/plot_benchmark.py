@@ -8,7 +8,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from travel_py.config import GlobalConfig, GridConfig, SeedConfig, AcceptConfig
+from travel_py.config import GlobalConfig, GridConfig, SeedConfig, AcceptConfig, ReachabilityConfig
 from travel_py.pipeline import run_fast
 
 OUTPUT_DIR = Path("docs/images")
@@ -20,20 +20,21 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 def plot_metrics_chart():
     # Data from 101 frames benchmark on SemanticKITTI 00
     categories = [
-        "5.0m (4-nbr)",
-        "2.5m (4-nbr)",
-        "2.5m (14-nbr)",
-        "2.5m (14-nbr+ReEx)",
+        "5.0m\n(4-nbr)",
+        "2.5m\n(4-nbr)",
+        "2.5m\n(14-nbr)",
+        "2.5m\n(14+ReEx)",
+        "2.5m\n(14+BDE)",
     ]
-    overall_iou = [82.74, 83.61, 85.20, 83.05]
-    overall_prec = [85.61, 94.47, 90.45, 87.27]
-    overall_rec = [96.11, 87.92, 93.62, 94.49]
-    overall_f1 = [90.56, 91.07, 92.01, 90.74]
-    latency_ms = [32.8, 37.6, 37.9, 38.5]
+    overall_iou = [82.74, 83.61, 85.20, 83.05, 85.36]
+    overall_prec = [85.61, 94.47, 90.45, 87.27, 90.24]
+    overall_rec = [96.11, 87.92, 93.62, 94.49, 94.03]
+    overall_f1 = [90.56, 91.07, 92.01, 90.74, 92.10]
+    latency_ms = [32.8, 37.6, 37.9, 38.5, 34.0]
 
-    near_iou = [83.41, 85.50, 85.97, 83.77]
-    mid_iou = [73.81, 52.98, 74.54, 73.09]
-    far_iou = [39.78, 1.38, 28.99, 46.21]
+    near_iou = [83.41, 85.50, 85.97, 83.77, 85.81]
+    mid_iou = [73.81, 52.98, 74.54, 73.09, 76.41]
+    far_iou = [39.78, 1.38, 28.99, 46.21, 50.09]
 
     plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), dpi=200)
@@ -76,7 +77,7 @@ def plot_metrics_chart():
 
     # Subplot 3: Latency & Frame Rate
     ax3 = axes[2]
-    colors = ["#3498db", "#2980b9", "#9b59b6", "#8e44ad"]
+    colors = ["#3498db", "#2980b9", "#9b59b6", "#8e44ad", "#27ae60"]
     bars = ax3.bar(categories, latency_ms, color=colors, width=0.5)
     ax3.set_title("Average Processing Latency (M3 Max, Python)", fontsize=11, fontweight="bold")
     ax3.set_ylabel("Latency (ms / frame)", fontsize=10)
@@ -114,13 +115,14 @@ def plot_qualitative_eval():
     ground_classes = {40, 44, 48, 49, 60, 72}
     gt_ground = np.isin(raw_labels, list(ground_classes))
 
-    # Run TRAVEL with latest recommended resolution 2.5m (14-nbr + re-explore)
+    # Run TRAVEL with latest recommended resolution 2.5m (14-nbr + Layer 2 B+D+E Reachability)
     resolution = 2.5
     nx = int(np.ceil(170 / resolution))
     cfg = GlobalConfig(
         grid=GridConfig(resolution=resolution, origin_xy=(-85.0, -85.0), size_xy=(nx, nx)),
         seed=SeedConfig(top_k=5, prefer_center=True, re_explore=True, max_components=50),
         accept=AcceptConfig(max_height_diff=0.5, th_normal=0.9, use_adaptive_lcc=True, use_14_neighbors=True),
+        reachability=ReachabilityConfig(enabled=True),
     )
     res = run_fast(pts_xyz, cfg, keep_grid=False)
     pred_ground = (res.labels == 1)
@@ -191,7 +193,7 @@ def plot_qualitative_eval():
     ax2.scatter(x[~pred_sub], y[~pred_sub], s=0.5, c="#95a5a6", alpha=0.5, label="Non-Ground")
     ax2.scatter(x[pred_sub], y[pred_sub], s=0.5, c="#3498db", alpha=0.6, label="TRAVEL Ground Filtered")
     ax2.plot(0, 0, marker="^", color="red", markersize=8, label="Ego Sensor")
-    ax2.set_title(f"(2) TRAVEL Fast Prediction (res={resolution}m, 14-nbr+ReEx, 38ms)", fontsize=11, fontweight="bold")
+    ax2.set_title(f"(2) TRAVEL Fast + BDE Reachability (res={resolution}m, 34ms)", fontsize=11, fontweight="bold")
     ax2.set_xlabel("X (forward, m)", fontsize=9)
     ax2.set_ylabel("Y (left, m)", fontsize=9)
     ax2.set_xlim(-50, 50)
