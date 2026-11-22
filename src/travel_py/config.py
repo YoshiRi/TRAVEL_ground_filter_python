@@ -62,6 +62,31 @@ class AcceptConfig:
 
 
 # =========================
+# Reachability / Traversability Verification (Extension beyond official TRAVEL)
+# =========================
+
+@dataclass
+class ReachabilityConfig:
+    """
+    Layer 2 extension: Reachability-aware multi-level ground verification (B+D+E).
+
+    NOTE — Deviation from official TRAVEL (darrenjkt/TRAVEL):
+      Pure TRAVEL (Layer 1) performs flat ground detection + unconstrained re-exploration.
+      When enabled, this Layer 2 post-filter separates disconnected flat components into:
+        - PRIMARY_GROUND (reachable directly from ego top_k seeds)
+        - BRIDGED_GROUND (disconnected flat components verified as coplanar extensions)
+        - OTHER_LEVEL_GROUND (elevated/unreachable flat surfaces such as building terraces,
+          car roofs, or overpasses — excluded from final traversable ground).
+      Default is enabled=False to preserve 100% compatibility with official TRAVEL.
+    """
+    enabled: bool = False
+    bridge_max_dist: float = 15.0        # Max 2D horizontal distance (m) to bridge across gaps
+    bridge_max_plane_dist: float = 0.45  # Max bidirectional plane extrapolation offset (m)
+    bridge_min_normal_sim: float = 0.90  # Min cosine similarity between bridged planes
+    z_stack_margin: float = 0.30         # Reject components sitting > margin (m) above confirmed ground
+
+
+# =========================
 # Debug / visualization
 # =========================
 
@@ -80,6 +105,7 @@ class GlobalConfig:
     grid: GridConfig = field(default_factory=GridConfig)
     seed: SeedConfig = field(default_factory=SeedConfig)
     accept: AcceptConfig = field(default_factory=AcceptConfig)
+    reachability: ReachabilityConfig = field(default_factory=ReachabilityConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
 
 
@@ -109,6 +135,9 @@ def load_config(path: Path | None = None) -> GlobalConfig:
 
     if "accept" in data:
         cfg.accept = replace(cfg.accept, **data["accept"])
+
+    if "reachability" in data:
+        cfg.reachability = replace(cfg.reachability, **data["reachability"])
 
     if "debug" in data:
         cfg.debug = replace(cfg.debug, **data["debug"])
