@@ -17,6 +17,7 @@ from travel_py.traversal import run_subcell_traversal
 from travel_py.types import CellState, SubCellIndex
 from travel_py import fast
 from travel_py import reachability
+from travel_py import drivability
 
 
 def make_plane_estimator(accept_cfg) -> LocalPlaneEstimator:
@@ -63,6 +64,9 @@ class PipelineResult:
     # Layer 2 Reachability extension outputs (populated when reachability.enabled=True)
     reachability_levels: Optional[np.ndarray] = None  # (N,) int8 (LEVEL_NONE/PRIMARY/BRIDGED/OTHER)
     reachability_stats: Dict[str, int] = field(default_factory=dict)
+    # Layer 3 Drivability / Curb post-processor outputs (populated when drivability.enabled=True)
+    drivability_levels: Optional[np.ndarray] = None   # (N,) int8 (DRIVABLE_NONE/ROAD/ELEVATED/CURB)
+    drivability_stats: Dict[str, int] = field(default_factory=dict)
 
     @property
     def num_seeds(self) -> int:
@@ -333,6 +337,37 @@ def run_fast(points: np.ndarray, global_cfg: GlobalConfig, *, keep_grid: bool = 
     labels = fast.label_points(flat, planes, final)
     timer.lap("label")
 
+    # Optional Layer 3: Drivability / Curb Step Post-Processor
+    driv_cfg = getattr(global_cfg, "drivability", None)
+    if driv_cfg is not None and driv_cfg.enabled:
+        # Compute robust ego road normal from dense near-ego confirmed ground subcells
+        near_ego_mask = (
+            effective_visited
+            & (flat.count >= 15)
+            & (planes.mean[:, 0] ** 2 + planes.mean[:, 1] ** 2 <= 100.0)
+        )
+        if np.any(near_ego_mask):
+            w = flat.count[near_ego_mask].astype(np.float64)[:, None]
+            ego_nrm = np.sum(planes.normal[near_ego_mask] * w, axis=0)
+            nrm_len = float(np.linalg.norm(ego_nrm))
+            ego_nrm = ego_nrm / nrm_len if nrm_len > 1e-6 else np.array([0.0, 0.0, 1.0])
+        elif trav.start_seed_rows:
+            ego_nrm = planes.normal[trav.start_seed_rows[0]]
+        else:
+            ego_nrm = np.array([0.0, 0.0, 1.0])
+        driv_res = drivability.verify_drivability(
+            points,
+            labels == fast.LABEL_GROUND,
+            ego_nrm,
+            driv_cfg,
+        )
+        driv_levels = driv_res.point_levels
+        driv_stats = driv_res.stats
+        timer.lap("drivability")
+    else:
+        driv_levels = None
+        driv_stats = {}
+
     # Step-1 labels dict (including empty subcells within cells as UNKNOWN)
     step1_labels = {}
     ci, cj = flat.cell_ij
@@ -373,4 +408,6 @@ def run_fast(points: np.ndarray, global_cfg: GlobalConfig, *, keep_grid: bool = 
         rejection_stats=trav.rejection_stats,
         reachability_levels=reach_levels,
         reachability_stats=reach_stats,
+        drivability_levels=driv_levels,
+        drivability_stats=driv_stats,
     )

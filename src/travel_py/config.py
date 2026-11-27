@@ -87,6 +87,37 @@ class ReachabilityConfig:
 
 
 # =========================
+# Drivability / Curb Step Verification (Layer 3 Post-Processor)
+# =========================
+
+@dataclass
+class DrivabilityConfig:
+    """
+    Layer 3 optional post-processor: Polar Ray-Marching Curb & Drivability Verification.
+
+    Operates AFTER Layer 1 (TRAVEL) and Layer 2 (Reachability) without modifying
+    their ground segmentation. Separates confirmed ground into:
+      - DRIVABLE_ROAD (1): reachable from ego without crossing a step/curb
+      - DRIVABLE_ELEVATED (2): confirmed ground behind a step/curb (e.g. sidewalk)
+      - DRIVABLE_CURB (3): detected curb transition band
+
+    Default is enabled=False to preserve 100% compatibility with official TRAVEL.
+    """
+    enabled: bool = False
+    max_range: float = 32.0             # Max polar sweep radius (m)
+    min_range: float = 1.5              # Min radius to ignore ego vehicle body (m)
+    n_sectors: int = 180                # Number of azimuth sectors (2 deg each)
+    radial_bin_size: float = 0.40       # Radial bin width (m)
+    step_height_thresh: float = 0.055   # 1-bin step height trigger (m)
+    step_slope_thresh: float = 0.055    # 1-bin excess slope trigger (dz/dr)
+    window_height_thresh: float = 0.065 # 2-3 bin window step height trigger (m)
+    window_slope_thresh: float = 0.040  # 2-3 bin window excess slope trigger
+    slope_adapt_alpha: float = 0.12     # Gentle radial slope EMA on smooth road
+    median_window: int = 3              # Circular median filter window across sectors
+    curb_band_half_width: float = 0.30  # Half-width (m) for DRIVABLE_CURB tag
+
+
+# =========================
 # Debug / visualization
 # =========================
 
@@ -106,6 +137,7 @@ class GlobalConfig:
     seed: SeedConfig = field(default_factory=SeedConfig)
     accept: AcceptConfig = field(default_factory=AcceptConfig)
     reachability: ReachabilityConfig = field(default_factory=ReachabilityConfig)
+    drivability: DrivabilityConfig = field(default_factory=DrivabilityConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
 
 
@@ -138,6 +170,9 @@ def load_config(path: Path | None = None) -> GlobalConfig:
 
     if "reachability" in data:
         cfg.reachability = replace(cfg.reachability, **data["reachability"])
+
+    if "drivability" in data:
+        cfg.drivability = replace(cfg.drivability, **data["drivability"])
 
     if "debug" in data:
         cfg.debug = replace(cfg.debug, **data["debug"])

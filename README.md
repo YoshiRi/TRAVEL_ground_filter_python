@@ -201,15 +201,17 @@ GitHub Pages有効化後、通常は以下で確認できます。
 
 ## 公式 TRAVEL からの乖離と拡張レイヤー管理
 
-本リポジトリでは、**公式 C++ 実装 (`darrenjkt/TRAVEL`) に準拠する地面検知（Layer 1）** と、**実運用向けの到達性検証（Layer 2: 独自拡張）** を意図的に分離して管理しています。
+本リポジトリでは、**公式 C++ 実装 (`darrenjkt/TRAVEL`) に準拠する地面検知（Layer 1）** と、**実運用向けの到達性検証（Layer 2）および段差・走行可能領域分離（Layer 3）** を意図的に分離して管理しています。
 
 | レイヤー | モジュール | 責務 | 公式 TRAVEL との関係 |
 |---|---|---|---|
 | **Layer 1: Ground Detection** | `fast.py`, `plane.py`, `graph.py`, `traversal.py` | LPR + PCA 局所平面推定、適応型 LCC、14近傍探索、マルチコンポーネント再探索 | **公式 `tgs.hpp` 準拠**（デフォルト設定） |
 | **Layer 2: Reachability Verification** | `reachability.py` (`ReachabilityConfig`) | 再探索で拾った孤立平坦面を `PRIMARY` / `BRIDGED` / `OTHER_LEVEL` に階層分離（双方向平面外挿＋下方重なり除外） | **独自拡張**（`reachability.enabled=True` で明示有効化） |
+| **Layer 3: Drivability / Curb Post-Processor** | `drivability.py` (`DrivabilityConfig`) | 確定グラウンド点群に対し、勾配キャンセル付き極座標レイ走査（Polar Ray-Marching）で車道 (`DRIVABLE_ROAD`)・歩道/高台 (`DRIVABLE_ELEVATED`)・縁石帯 (`DRIVABLE_CURB`) を分離 | **独自後処理**（`drivability.enabled=True` で明示有効化。`res.labels` は非破壊） |
 
-- `ReachabilityConfig(enabled=False)`（デフォルト）では Layer 2 は一切実行されず、純粋な TRAVEL として動作します。
+- `ReachabilityConfig(enabled=False)` / `DrivabilityConfig(enabled=False)`（デフォルト）では Layer 2 / Layer 3 は一切実行されず、純粋な TRAVEL として動作します。
 - `ReachabilityConfig(enabled=True)` を有効にすると、建物のテラス・車の屋根・高架などの高所平坦面（`OTHER_LEVEL`）を安全に除外しつつ、遮蔽・遠方疎点群の先にある同一路面（`BRIDGED`）のみを救済します。
+- `DrivabilityConfig(enabled=True)` を有効にすると、Layer 1/2 のグラウンド出力 (`res.labels`) を一切改変せず、`res.drivability_levels` として段差・縁石で区切られた走行可能領域を軽量（約 3.8〜4.0 ms）に追加出力します。
 
 ---
 
